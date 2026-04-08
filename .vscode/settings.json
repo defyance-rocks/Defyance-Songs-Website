@@ -1,0 +1,13 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "npm audit": true,
+        "npm install": true,
+        "netstat": true,
+        "Get-Process": true,
+        "npm run serve": true,
+        "npm start": true,
+        "Set-Content": true,
+        "ForEach-Object": true,
+        "npx electron": true
+    }
+}
