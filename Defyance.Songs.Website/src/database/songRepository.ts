@@ -5,7 +5,7 @@ import { Song } from '../shared/models';
 export const getAllSongs = (): Promise<Song[]> => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT s.id, s.name, s.artist, s.setlistId, s.position, s.vocalRange, s.notes, s.link,
+      `SELECT s.id, s.name, s.artist, s.vocalRange, s.notes, s.link,
               GROUP_CONCAT(sv.musicianId) AS vocalistIds
        FROM songs s
        LEFT JOIN song_vocalists sv ON s.id = sv.songId
@@ -17,7 +17,6 @@ export const getAllSongs = (): Promise<Song[]> => {
           id: row.id,
           name: row.name,
           artist: row.artist,
-          setlistId: row.setlistId || null,
           vocalRange: row.vocalRange || null,
           notes: row.notes || null,
           link: row.link || null,
@@ -32,8 +31,6 @@ export const getAllSongs = (): Promise<Song[]> => {
 export const createSong = (
   name: string,
   artist: string,
-  setlistId?: string | null,
-  position?: number,
   vocalRange?: 'High' | 'Low' | null,
   notes?: string | null,
   link?: string | null
@@ -44,14 +41,12 @@ export const createSong = (
       id,
       name,
       artist,
-      setlistId ?? undefined,
-      position ?? undefined,
-      vocalRange ?? undefined,
-      notes ?? undefined,
-      link ?? undefined,
+      vocalRange ?? null,
+      notes ?? null,
+      link ?? null,
     ];
     db.run(
-      `INSERT INTO songs (id, name, artist, setlistId, position, vocalRange, notes, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO songs (id, name, artist, vocalRange, notes, link) VALUES (?, ?, ?, ?, ?, ?)`,
       params,
       function (err) {
         if (err) return reject(err);
@@ -59,7 +54,6 @@ export const createSong = (
           id,
           name,
           artist,
-          setlistId: setlistId ?? null,
           vocalRange: vocalRange || null,
           notes: notes || null,
           link: link || null,
@@ -109,8 +103,6 @@ export const updateSong = (
   id: string,
   name: string,
   artist: string,
-  setlistId?: string | null,
-  position?: number,
   vocalRange?: 'High' | 'Low' | null,
   notes?: string | null,
   link?: string | null
@@ -119,15 +111,13 @@ export const updateSong = (
     const params: any[] = [
       name,
       artist,
-      setlistId ?? null,
-      position ?? null,
       vocalRange ?? null,
       notes ?? null,
       link ?? null,
       id,
     ];
     db.run(
-      `UPDATE songs SET name = ?, artist = ?, setlistId = ?, position = ?, vocalRange = ?, notes = ?, link = ? WHERE id = ?`,
+      `UPDATE songs SET name = ?, artist = ?, vocalRange = ?, notes = ?, link = ? WHERE id = ?`,
       params,
       function (err) {
         if (err) return reject(err);

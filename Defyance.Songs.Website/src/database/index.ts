@@ -84,12 +84,9 @@ const initDatabase = () => {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           artist TEXT NOT NULL,
-          setlistId TEXT,
-          position INTEGER,
           vocalRange TEXT,
           notes TEXT,
-          link TEXT,
-          FOREIGN KEY (setlistId) REFERENCES setlists(id)
+          link TEXT
         )
       `, (err) => {
         if (err) {
@@ -103,10 +100,7 @@ const initDatabase = () => {
       db.run(`
         CREATE TABLE IF NOT EXISTS setlists (
           id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          eventId TEXT,
-          position INTEGER,
-          FOREIGN KEY (eventId) REFERENCES events(id)
+          name TEXT NOT NULL
         )
       `, (err) => {
         if (err) {
@@ -125,7 +119,6 @@ const initDatabase = () => {
           date TEXT NOT NULL,
           time TEXT NOT NULL,
           tourId TEXT,
-          position INTEGER,
           FOREIGN KEY (tourId) REFERENCES tours(id)
         )
       `, (err) => {
@@ -184,6 +177,42 @@ const initDatabase = () => {
           return;
         }
         console.log('Song_vocalists table created');
+      });
+
+      db.run(`
+        CREATE TABLE IF NOT EXISTS setlist_songs (
+          setlistId TEXT,
+          songId TEXT,
+          position INTEGER,
+          PRIMARY KEY (setlistId, songId),
+          FOREIGN KEY (setlistId) REFERENCES setlists(id),
+          FOREIGN KEY (songId) REFERENCES songs(id)
+        )
+      `, (err) => {
+        if (err) {
+          console.error('Error creating setlist_songs table:', err);
+          reject(err);
+          return;
+        }
+        console.log('Setlist_songs table created');
+      });
+
+      db.run(`
+        CREATE TABLE IF NOT EXISTS event_setlists (
+          eventId TEXT,
+          setlistId TEXT,
+          position INTEGER,
+          PRIMARY KEY (eventId, setlistId),
+          FOREIGN KEY (eventId) REFERENCES events(id),
+          FOREIGN KEY (setlistId) REFERENCES setlists(id)
+        )
+      `, (err) => {
+        if (err) {
+          console.error('Error creating event_setlists table:', err);
+          reject(err);
+          return;
+        }
+        console.log('Event_setlists table created');
         resolve(); // Resolve after all tables are created
       });
     });
