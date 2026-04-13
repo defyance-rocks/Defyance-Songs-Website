@@ -96,3 +96,16 @@ export const getAllAssignments = (): Promise<any[]> => {
     });
   });
 };
+
+export const updateInstrument = (id: string, name: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE instruments SET name = ? WHERE id = ?`,
+      [name, id],
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+};

@@ -60,3 +60,22 @@ export const deleteMusician = (id: string): Promise<void> => {
     });
   });
 };
+
+export const updateMusician = (
+  id: string,
+  name: string,
+  phone?: string,
+  email?: string,
+  bio?: string
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE musicians SET name = ?, phone = ?, email = ?, bio = ? WHERE id = ?`,
+      [name, phone || null, email || null, bio || null, id],
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+};

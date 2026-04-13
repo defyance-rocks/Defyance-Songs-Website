@@ -71,3 +71,16 @@ export const removeMusicianFromBand = (bandId: string, musicianId: string): Prom
     );
   });
 };
+
+export const updateBand = (id: string, name: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE bands SET name = ? WHERE id = ?`,
+      [name, id],
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+};

@@ -104,3 +104,35 @@ export const removeVocalistFromSong = (songId: string, musicianId: string): Prom
     );
   });
 };
+
+export const updateSong = (
+  id: string,
+  name: string,
+  artist: string,
+  setlistId?: string | null,
+  position?: number,
+  vocalRange?: 'High' | 'Low' | null,
+  notes?: string | null,
+  link?: string | null
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const params: any[] = [
+      name,
+      artist,
+      setlistId ?? null,
+      position ?? null,
+      vocalRange ?? null,
+      notes ?? null,
+      link ?? null,
+      id,
+    ];
+    db.run(
+      `UPDATE songs SET name = ?, artist = ?, setlistId = ?, position = ?, vocalRange = ?, notes = ?, link = ? WHERE id = ?`,
+      params,
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+};
