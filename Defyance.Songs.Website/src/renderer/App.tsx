@@ -51,6 +51,28 @@ interface Song {
   link?: string;
 }
 
+interface SetList {
+  id: string;
+  name: string;
+  songs: string[];
+}
+
+interface Event {
+  id: string;
+  name: string;
+  location: string;
+  date: string;
+  time: string;
+  tourId?: string | null;
+  setLists: string[];
+}
+
+interface Tour {
+  id: string;
+  name: string;
+  events: string[];
+}
+
 const theme = {
   background: '#0f1217',
   surface: '#161b22',
@@ -63,27 +85,48 @@ const theme = {
 };
 
 const App: React.FC = () => {
-  const [tab, setTab] = useState<'bands' | 'musicians' | 'songs' | 'instruments'>('bands');
+  const [tab, setTab] = useState<'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours'>('bands');
   const [bands, setBands] = useState<Band[]>([]);
   const [musicians, setMusicians] = useState<Musician[]>([]);
   const [instruments, setInstruments] = useState<Instrument[]>([]);
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [setlists, setSetlists] = useState<SetList[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [tours, setTours] = useState<Tour[]>([]);
+
   const [bandName, setBandName] = useState('');
   const [musicName, setMusicName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [bio, setBio] = useState('');
   const [instrumentName, setInstrumentName] = useState('');
+  
   const [selectedBandId, setSelectedBandId] = useState<string | null>(null);
-  const [assignMusicId, setAssignMusicId] = useState('');
   const [selectedMusicianId, setSelectedMusicianId] = useState<string | null>(null);
-  const [songs, setSongs] = useState<Song[]>([]);
+  
   const [songName, setSongName] = useState('');
   const [songArtist, setSongArtist] = useState('');
   const [songVocalRange, setSongVocalRange] = useState<'High' | 'Low' | ''>('');
   const [songNotes, setSongNotes] = useState('');
   const [songLink, setSongLink] = useState('');
+  
+  const [setlistName, setSetlistName] = useState('');
+  const [selectedSetlistId, setSelectedSetlistId] = useState<string | null>(null);
+  
+  const [eventName, setEventName] = useState('');
+  const [eventLocation, setEventLocation] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [eventTime, setEventTime] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  
+  const [tourName, setTourName] = useState('');
+  const [selectedTourId, setSelectedTourId] = useState<string | null>(null);
+
   const [assignInstrumentId, setAssignInstrumentId] = useState('');
   const [assignVocalistId, setAssignVocalistId] = useState('');
+  const [assignSongId, setAssignSongId] = useState('');
+  const [assignSetlistId, setAssignSetlistId] = useState('');
+  const [assignEventId, setAssignEventId] = useState('');
 
   const loadBands = async () => {
     const result = await ipcRenderer.invoke('bands:list');
@@ -101,11 +144,29 @@ const App: React.FC = () => {
     setInstruments(result);
   };
 
+  const loadSetlists = async () => {
+    const result = await ipcRenderer.invoke('setlists:list');
+    setSetlists(result);
+  };
+
+  const loadEvents = async () => {
+    const result = await ipcRenderer.invoke('events:list');
+    setEvents(result);
+  };
+
+  const loadTours = async () => {
+    const result = await ipcRenderer.invoke('tours:list');
+    setTours(result);
+  };
+
   useEffect(() => {
     loadBands();
     loadMusicians();
     loadInstruments();
     loadSongs();
+    loadSetlists();
+    loadEvents();
+    loadTours();
   }, []);
 
   const addBand = async () => {
@@ -223,6 +284,84 @@ const App: React.FC = () => {
     loadSongs();
   };
 
+  const addSetlist = async () => {
+    if (!setlistName.trim()) return;
+    await ipcRenderer.invoke('setlists:create', setlistName.trim());
+    setSetlistName('');
+    loadSetlists();
+  };
+
+  const removeSetlist = async (id: string) => {
+    await ipcRenderer.invoke('setlists:delete', id);
+    loadSetlists();
+    if (selectedSetlistId === id) setSelectedSetlistId(null);
+  };
+
+  const addSongToSetlist = async (setlistId: string, songId: string) => {
+    const setlist = setlists.find(s => s.id === setlistId);
+    const position = setlist ? setlist.songs.length : 0;
+    await ipcRenderer.invoke('setlists:add-song', setlistId, songId, position);
+    loadSetlists();
+  };
+
+  const removeSongFromSetlist = async (setlistId: string, songId: string) => {
+    await ipcRenderer.invoke('setlists:remove-song', setlistId, songId);
+    loadSetlists();
+  };
+
+  const addEvent = async () => {
+    if (!eventName.trim()) return;
+    await ipcRenderer.invoke('events:create', eventName.trim(), eventLocation.trim(), eventDate, eventTime);
+    setEventName('');
+    setEventLocation('');
+    setEventDate('');
+    setEventTime('');
+    loadEvents();
+  };
+
+  const removeEvent = async (id: string) => {
+    await ipcRenderer.invoke('events:delete', id);
+    loadEvents();
+    if (selectedEventId === id) setSelectedEventId(null);
+  };
+
+  const addSetlistToEvent = async (eventId: string, setlistId: string) => {
+    const event = events.find(e => e.id === eventId);
+    const position = event ? event.setLists.length : 0;
+    await ipcRenderer.invoke('events:add-setlist', eventId, setlistId, position);
+    loadEvents();
+  };
+
+  const removeSetlistFromEvent = async (eventId: string, setlistId: string) => {
+    await ipcRenderer.invoke('events:remove-setlist', eventId, setlistId);
+    loadEvents();
+  };
+
+  const addTour = async () => {
+    if (!tourName.trim()) return;
+    await ipcRenderer.invoke('tours:create', tourName.trim());
+    setTourName('');
+    loadTours();
+  };
+
+  const removeTour = async (id: string) => {
+    await ipcRenderer.invoke('tours:delete', id);
+    loadTours();
+    if (selectedTourId === id) setSelectedTourId(null);
+  };
+
+  const addEventToTour = async (tourId: string, eventId: string) => {
+    await ipcRenderer.invoke('tours:add-event', tourId, eventId);
+    loadTours();
+    loadEvents();
+  };
+
+  const removeEventFromTour = async (eventId: string) => {
+    await ipcRenderer.invoke('tours:remove-event', eventId);
+    loadTours();
+    loadEvents();
+  };
+
   const buttonStyle = {
     padding: '8px 16px',
     background: theme.surfaceAlt,
@@ -273,6 +412,36 @@ const App: React.FC = () => {
           }}
         >
           Songs
+        </button>
+        <button
+          onClick={() => setTab('setlists')}
+          style={{
+            ...buttonStyle,
+            background: tab === 'setlists' ? theme.accent : theme.surface,
+            color: tab === 'setlists' ? '#fff' : theme.text,
+          }}
+        >
+          SetLists
+        </button>
+        <button
+          onClick={() => setTab('events')}
+          style={{
+            ...buttonStyle,
+            background: tab === 'events' ? theme.accent : theme.surface,
+            color: tab === 'events' ? '#fff' : theme.text,
+          }}
+        >
+          Events
+        </button>
+        <button
+          onClick={() => setTab('tours')}
+          style={{
+            ...buttonStyle,
+            background: tab === 'tours' ? theme.accent : theme.surface,
+            color: tab === 'tours' ? '#fff' : theme.text,
+          }}
+        >
+          Tours
         </button>
         <button
           onClick={() => setTab('instruments')}
@@ -584,6 +753,258 @@ const App: React.FC = () => {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+      )}
+      {tab === 'setlists' && (
+        <section style={{ maxWidth: 900 }}>
+          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
+            <h2 style={{ marginBottom: 12 }}>SetLists</h2>
+            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input value={setlistName} onChange={(e) => setSetlistName(e.target.value)} placeholder="New setlist name" style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={addSetlist} style={buttonStyle}>Add SetList</button>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {setlists.length === 0 && <li style={{ color: theme.muted }}>No setlists yet.</li>}
+              {setlists.map((setlist) => (
+                <li key={setlist.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
+                  <span>{setlist.name}</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setSelectedSetlistId(setlist.id)} style={buttonStyle}>Manage</button>
+                    <button onClick={() => removeSetlist(setlist.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {selectedSetlistId && (
+              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
+                <h3 style={{ marginBottom: 16 }}>Manage SetList</h3>
+                {(() => {
+                  const selectedSetlist = setlists.find((s) => s.id === selectedSetlistId);
+                  if (!selectedSetlist) return <p>Selected setlist not found.</p>;
+                  return (
+                    <>
+                      <div style={{ marginBottom: 18 }}>
+                        <strong>{selectedSetlist.name}</strong>
+                      </div>
+                      <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ marginBottom: 12 }}>Songs</h4>
+                        {selectedSetlist.songs.length === 0 && <p style={{ color: theme.muted }}>No songs in this setlist.</p>}
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                          {selectedSetlist.songs.map((songId) => {
+                            const song = songs.find(s => s.id === songId);
+                            return song ? (
+                              <li key={song.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
+                                <span>{song.name} - {song.artist}</span>
+                                <button onClick={() => removeSongFromSetlist(selectedSetlist.id, song.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
+                                  Remove
+                                </button>
+                              </li>
+                            ) : null;
+                          })}
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 style={{ marginBottom: 12 }}>Add Song</h4>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <select value={assignSongId} onChange={(e) => setAssignSongId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+                            <option value="">Select song</option>
+                            {songs
+                              .filter((s) => !selectedSetlist.songs.includes(s.id))
+                              .map((song) => (
+                                <option key={song.id} value={song.id}>{song.name} - {song.artist}</option>
+                              ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (!assignSongId) return;
+                              addSongToSetlist(selectedSetlist.id, assignSongId);
+                              setAssignSongId('');
+                            }}
+                            style={buttonStyle}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {tab === 'events' && (
+        <section style={{ maxWidth: 900 }}>
+          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
+            <h2 style={{ marginBottom: 12 }}>Events</h2>
+            <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
+              <input value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Event name" style={inputStyle} />
+              <input value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} placeholder="Location" style={inputStyle} />
+              <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} style={inputStyle} />
+              <input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} style={inputStyle} />
+              <button onClick={addEvent} style={buttonStyle}>Add Event</button>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {events.length === 0 && <li style={{ color: theme.muted }}>No events yet.</li>}
+              {events.map((event) => (
+                <li key={event.id} style={{ marginBottom: 14, padding: 16, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: theme.text }}>{event.name}</div>
+                      <div style={{ color: theme.muted }}>{event.location} - {event.date} {event.time}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => setSelectedEventId(event.id)} style={buttonStyle}>Manage</button>
+                      <button onClick={() => removeEvent(event.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {selectedEventId && (
+              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
+                <h3 style={{ marginBottom: 16 }}>Manage Event</h3>
+                {(() => {
+                  const selectedEvent = events.find((e) => e.id === selectedEventId);
+                  if (!selectedEvent) return <p>Selected event not found.</p>;
+                  return (
+                    <>
+                      <div style={{ marginBottom: 18 }}>
+                        <strong>{selectedEvent.name}</strong>
+                      </div>
+                      <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ marginBottom: 12 }}>SetLists</h4>
+                        {selectedEvent.setLists.length === 0 && <p style={{ color: theme.muted }}>No setlists assigned.</p>}
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                          {selectedEvent.setLists.map((setlistId) => {
+                            const setlist = setlists.find(s => s.id === setlistId);
+                            return setlist ? (
+                              <li key={setlist.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
+                                <span>{setlist.name}</span>
+                                <button onClick={() => removeSetlistFromEvent(selectedEvent.id, setlist.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
+                                  Remove
+                                </button>
+                              </li>
+                            ) : null;
+                          })}
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 style={{ marginBottom: 12 }}>Assign SetList</h4>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <select value={assignSetlistId} onChange={(e) => setAssignSetlistId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+                            <option value="">Select setlist</option>
+                            {setlists
+                              .filter((s) => !selectedEvent.setLists.includes(s.id))
+                              .map((setlist) => (
+                                <option key={setlist.id} value={setlist.id}>{setlist.name}</option>
+                              ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (!assignSetlistId) return;
+                              addSetlistToEvent(selectedEvent.id, assignSetlistId);
+                              setAssignSetlistId('');
+                            }}
+                            style={buttonStyle}
+                          >
+                            Assign
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {tab === 'tours' && (
+        <section style={{ maxWidth: 900 }}>
+          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
+            <h2 style={{ marginBottom: 12 }}>Tours</h2>
+            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input value={tourName} onChange={(e) => setTourName(e.target.value)} placeholder="New tour name" style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={addTour} style={buttonStyle}>Add Tour</button>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {tours.length === 0 && <li style={{ color: theme.muted }}>No tours yet.</li>}
+              {tours.map((tour) => (
+                <li key={tour.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
+                  <span>{tour.name}</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setSelectedTourId(tour.id)} style={buttonStyle}>Manage</button>
+                    <button onClick={() => removeTour(tour.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {selectedTourId && (
+              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
+                <h3 style={{ marginBottom: 16 }}>Manage Tour</h3>
+                {(() => {
+                  const selectedTour = tours.find((t) => t.id === selectedTourId);
+                  if (!selectedTour) return <p>Selected tour not found.</p>;
+                  return (
+                    <>
+                      <div style={{ marginBottom: 18 }}>
+                        <strong>{selectedTour.name}</strong>
+                      </div>
+                      <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ marginBottom: 12 }}>Events</h4>
+                        {selectedTour.events.length === 0 && <p style={{ color: theme.muted }}>No events in this tour.</p>}
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                          {selectedTour.events.map((eventId) => {
+                            const event = events.find(e => e.id === eventId);
+                            return event ? (
+                              <li key={event.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
+                                <span>{event.name} ({event.date})</span>
+                                <button onClick={() => removeEventFromTour(event.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
+                                  Remove
+                                </button>
+                              </li>
+                            ) : null;
+                          })}
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 style={{ marginBottom: 12 }}>Add Event</h4>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <select value={assignEventId} onChange={(e) => setAssignEventId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+                            <option value="">Select event</option>
+                            {events
+                              .filter((e) => !selectedTour.events.includes(e.id))
+                              .map((event) => (
+                                <option key={event.id} value={event.id}>{event.name} ({event.date})</option>
+                              ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (!assignEventId) return;
+                              addEventToTour(selectedTour.id, assignEventId);
+                              setAssignEventId('');
+                            }}
+                            style={buttonStyle}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         </section>
       )}
