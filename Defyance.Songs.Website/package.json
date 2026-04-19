@@ -4,12 +4,10 @@
   "description": "Band management app",
   "main": "dist/main/main.js",
   "scripts": {
-    "start": "concurrently \"npm run serve\" \"npm run dev:electron\"",
-    "dev:electron": "npm run build:main && cross-env NODE_ENV=development wait-on http://localhost:3002 && electron .",
-    "build": "npm run build:react && npm run build:electron",
+    "start": "npm run start",
+    "build": "npm run build:react && npm run build:main",
     "build:main": "tsc -p tsconfig.json",
     "build:react": "webpack --mode production",
-    "build:electron": "npm run build:main && electron-builder",
     "serve": "webpack serve --mode development"
   },
   "keywords": [],
