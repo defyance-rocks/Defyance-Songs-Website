@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-
-const { ipcRenderer } = (window as any).require('electron');
+import { supabase } from './supabase';
 
 interface Band { id: string; name: string; musicians: string[]; }
 interface Musician { id: string; name: string; phone?: string; email?: string; bio?: string; instruments: string[]; bands: string[]; }
@@ -31,6 +30,7 @@ const App: React.FC = () => {
   const [navStack, setNavStack] = useState<NavState[]>([]);
 
   const [isPrinting, setIsPrinting] = useState(false);
+  const [activePrintId, setActivePrintId] = useState<string | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
@@ -61,15 +61,89 @@ const App: React.FC = () => {
   const firstInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
 
   const loadAll = useCallback(async () => {
-    console.log('[Data] Syncing database...');
-    const [b, m, i, s, sl, e, t, ms] = await Promise.all([
-      ipcRenderer.invoke('bands:list'), ipcRenderer.invoke('musicians:list'),
-      ipcRenderer.invoke('instruments:list'), ipcRenderer.invoke('songs:list'),
-      ipcRenderer.invoke('setlists:list'), ipcRenderer.invoke('events:list'),
-      ipcRenderer.invoke('tours:list'), ipcRenderer.invoke('master-setlists:list'),
-    ]);
-    setBands(b); setMusicians(m); setInstruments(i); setSongs(s); setSetlists(sl); setEvents(e); setTours(t); setMasterSetlists(ms);
+    console.log('[Data] Syncing with Supabase...');
+    try {
+      const [
+        { data: b }, { data: m }, { data: i }, { data: s }, 
+        { data: sl }, { data: e }, { data: t }, { data: ms },
+        { data: bm }, { data: mi }, { data: sls }, { data: esl }, { data: msls }
+      ] = await Promise.all([
+        supabase.from('bands').select('*'),
+        supabase.from('musicians').select('*'),
+        supabase.from('instruments').select('*'),
+        supabase.from('songs').select('*'),
+        supabase.from('setlists').select('*'),
+        supabase.from('events').select('*'),
+        supabase.from('tours').select('*'),
+        supabase.from('master_setlists').select('*'),
+        supabase.from('band_musicians').select('*'),
+        supabase.from('musician_instruments').select('*'),
+        supabase.from('setlist_songs').select('*').order('position'),
+        supabase.from('event_setlists').select('*').order('position'),
+        supabase.from('master_setlist_setlists').select('*').order('position')
+      ]);
+
+      // Process relationships to match original UI expectations
+      const bandsData = (b || []).map(band => ({
+        ...band,
+        musicians: (bm || []).filter(x => x.band_id === band.id).map(x => x.musician_id)
+      }));
+
+      const musiciansData = (m || []).map(musician => ({
+        ...musician,
+        instruments: (mi || []).filter(x => x.musician_id === musician.id).map(x => x.instrument_id),
+        bands: (bm || []).filter(x => x.musician_id === musician.id).map(x => x.band_id)
+      }));
+
+      const instrumentsData = (i || []).map(inst => ({
+        ...inst,
+        musicians: (mi || []).filter(x => x.instrument_id === inst.id).map(x => x.musician_id)
+      }));
+
+      const songsData = (s || []).map(song => ({
+        ...song,
+        vocalRange: song.vocal_range,
+        vocalists: [] // Placeholder if needed
+      }));
+
+      const setlistsData = (sl || []).map(setlist => ({
+        ...setlist,
+        songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => x.song_id)
+      }));
+
+      const eventsData = (e || []).map(event => ({
+        ...event,
+        tourId: event.tour_id,
+        setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({
+          id: x.setlist_id || x.master_setlist_id,
+          type: x.setlist_id ? 'setlist' : 'master',
+          position: x.position
+        }))
+      }));
+
+      const toursData = (t || []).map(tour => ({
+        ...tour,
+        events: (e || []).filter(event => event.tour_id === tour.id).map(event => event.id)
+      }));
+
+      const masterSetlistsData = (ms || []).map(msl => ({
+        ...msl,
+        setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id)
+      }));
+
+      setBands(bandsData as any);
+      setMusicians(musiciansData as any);
+      setInstruments(instrumentsData as any);
+      setSongs(songsData as any);
+      setSetlists(setlistsData as any);
+      setEvents(eventsData as any);
+      setTours(toursData as any);
+      setMasterSetlists(masterSetlistsData as any);
+    } catch (err) {
+      console.error('Failed to load data from Supabase', err);
+    }
   }, []);
+
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -143,18 +217,26 @@ const App: React.FC = () => {
   const handleSave = async () => {
     if (!editName.trim()) return;
     const link = formatUrl(editLink.trim());
-    const args: any[] = isEditing && selectedId ? [selectedId, editName] : [editName];
-    if (tab === 'musicians') args.push(editPhone, editEmail, editBio);
-    if (tab === 'songs') args.push(editArtist, editVocalRange || null, editNotes, link);
-    if (tab === 'events') args.push(editLocation, editDate, editTime);
-    await ipcRenderer.invoke(`${tab.replace('master-', 'master')}:${isEditing && selectedId ? 'update' : 'create'}`, ...args);
+    const table = tab === 'master-setlists' ? 'master_setlists' : tab;
+    
+    const payload: any = { name: editName };
+    if (tab === 'musicians') { payload.phone = editPhone; payload.email = editEmail; payload.bio = editBio; }
+    if (tab === 'songs') { payload.artist = editArtist; payload.vocal_range = editVocalRange || null; payload.notes = editNotes; payload.link = link; }
+    if (tab === 'events') { payload.location = editLocation; payload.date = editDate || null; payload.time = editTime || null; }
+
+    if (isEditing && selectedId) {
+      await supabase.from(table).update(payload).eq('id', selectedId);
+    } else {
+      await supabase.from(table).insert(payload);
+    }
+    
     setNavStack([]); setIsEditing(false); setSelectedId(null); loadAll();
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure?')) return;
-    const prefix = tab.replace('master-', 'master');
-    await ipcRenderer.invoke(`${prefix}:delete`, id);
+    const table = tab === 'master-setlists' ? 'master_setlists' : tab;
+    await supabase.from(table).delete().eq('id', id);
     if (selectedId === id) setSelectedId(null);
     loadAll();
   };
@@ -195,29 +277,34 @@ const App: React.FC = () => {
 
   const handleAssign = async () => {
     if (!selectedId || !assignId) return;
-    if (tab === 'bands') await ipcRenderer.invoke('bands:assign-musician', selectedId, assignId);
-    else if (tab === 'musicians') await ipcRenderer.invoke('instruments:assign-to-musician', selectedId, assignId);
-    else if (tab === 'songs') await ipcRenderer.invoke('setlists:add-song', assignId, selectedId, (setlists.find(s => s.id === assignId)?.songs.length || 0));
-    else if (tab === 'setlists') await ipcRenderer.invoke('setlists:add-song', selectedId, assignId, (getItemById() as SetList).songs.length);
-    else if (tab === 'master-setlists') await ipcRenderer.invoke('master-setlists:add-setlist', selectedId, assignId, (getItemById() as MasterSetList).setlists.length);
-    else if (tab === 'events') { const [t, id] = assignId.split(':'); await ipcRenderer.invoke('events:add-setlist', selectedId, id, t, (getItemById() as Event).setLists.length); }
-    else if (tab === 'tours') await ipcRenderer.invoke('tours:add-event', selectedId, assignId, (getItemById() as Tour).events.length);
+    if (tab === 'bands') await supabase.from('band_musicians').insert({ band_id: selectedId, musician_id: assignId });
+    else if (tab === 'musicians') await supabase.from('musician_instruments').insert({ musician_id: selectedId, instrument_id: assignId });
+    else if (tab === 'songs') await supabase.from('setlist_songs').insert({ setlist_id: assignId, song_id: selectedId, position: (setlists.find(s => s.id === assignId)?.songs.length || 0) });
+    else if (tab === 'setlists') await supabase.from('setlist_songs').insert({ setlist_id: selectedId, song_id: assignId, position: (getItemById() as SetList).songs.length });
+    else if (tab === 'master-setlists') await supabase.from('master_setlist_setlists').insert({ master_setlist_id: selectedId, setlist_id: assignId, position: (getItemById() as MasterSetList).setlists.length });
+    else if (tab === 'events') { 
+      const [type, id] = assignId.split(':'); 
+      const payload: any = { event_id: selectedId, position: (getItemById() as Event).setLists.length };
+      if (type === 'setlist') payload.setlist_id = id; else payload.master_setlist_id = id;
+      await supabase.from('event_setlists').insert(payload);
+    }
+    else if (tab === 'tours') await supabase.from('events').update({ tour_id: selectedId }).eq('id', assignId);
     setAssignId(''); setAssignSearch(''); loadAll();
   };
 
   const handleUnassign = async (targetId: string, targetType?: string) => {
     if (!selectedId) return;
-    if (tab === 'songs') await ipcRenderer.invoke('setlists:remove-song', targetId, selectedId);
-    else {
-      const prefix = tab.replace('master-', 'master');
-      let method = 'remove-song';
-      if (tab === 'musicians') method = 'remove-from-musician';
-      else if (tab === 'bands') method = 'remove-musician';
-      else if (tab === 'tours') method = 'remove-event';
-      else if (tab === 'events') method = 'remove-setlist';
-      else if (tab === 'master-setlists') method = 'remove-setlist';
-      await ipcRenderer.invoke(`${prefix}:${method}`, selectedId, targetId, targetType);
+    if (tab === 'bands') await supabase.from('band_musicians').delete().eq('band_id', selectedId).eq('musician_id', targetId);
+    else if (tab === 'musicians') await supabase.from('musician_instruments').delete().eq('musician_id', selectedId).eq('instrument_id', targetId);
+    else if (tab === 'songs') await supabase.from('setlist_songs').delete().eq('setlist_id', targetId).eq('song_id', selectedId);
+    else if (tab === 'setlists') await supabase.from('setlist_songs').delete().eq('setlist_id', selectedId).eq('song_id', targetId);
+    else if (tab === 'master-setlists') await supabase.from('master_setlist_setlists').delete().eq('master_setlist_id', selectedId).eq('setlist_id', targetId);
+    else if (tab === 'events') {
+      const query = supabase.from('event_setlists').delete().eq('event_id', selectedId);
+      if (targetType === 'setlist') query.eq('setlist_id', targetId); else query.eq('master_setlist_id', targetId);
+      await query;
     }
+    else if (tab === 'tours') await supabase.from('events').update({ tour_id: null }).eq('id', targetId);
     loadAll();
   };
 
@@ -227,11 +314,24 @@ const App: React.FC = () => {
     const target = targetIndex !== undefined ? targetIndex : (direction === 'up' ? index - 1 : index + 1);
     if (target < 0 || target >= list.length || target === index) return;
     const [moved] = list.splice(index, 1); list.splice(target, 0, moved);
-    const prefix = tab.replace('master-', 'master');
-    const method = tab === 'setlists' ? 'reorder-songs' : (tab === 'events' ? 'reorder-setlists' : (tab === 'tours' ? 'reorder-events' : 'reorder-setlists'));
-    await ipcRenderer.invoke(`${prefix}:${method}`, selectedId, tab === 'events' ? list.map(e => ({ id: e.id, type: e.type })) : list);
+    
+    // Reorder logic for Supabase
+    if (tab === 'setlists') {
+      await Promise.all(list.map((id, i) => supabase.from('setlist_songs').update({ position: i }).eq('setlist_id', selectedId).eq('song_id', id)));
+    } else if (tab === 'master-setlists') {
+      await Promise.all(list.map((id, i) => supabase.from('master_setlist_setlists').update({ position: i }).eq('master_setlist_id', selectedId).eq('setlist_id', id)));
+    } else if (tab === 'events') {
+      await Promise.all(list.map((e, i) => {
+        const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
+        if (e.type === 'setlist') query.eq('setlist_id', e.id); else query.eq('master_setlist_id', e.id);
+        return query;
+      }));
+    } else if (tab === 'tours') {
+      // Tours don't have a position field in events table currently, might need to add it if ordering matters
+    }
     loadAll();
   };
+
 
   const getRelationshipTitle = () => {
     if (tab === 'bands') return 'Band Members'; if (tab === 'musicians') return 'Instruments'; if (tab === 'songs') return 'Associated SetLists';
@@ -264,27 +364,63 @@ const App: React.FC = () => {
     backBtn: { background: 'transparent', color: theme.muted, border: `1px solid ${theme.border}`, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 12px', borderRadius: 6 },
   };
 
-  const renderSongListPrint = (songsToPrint: Song[], h1: string, h2?: string) => (
-    <div key={h1+h2} style={{ pageBreakAfter: 'always', padding: '20px 40px', background: '#fff', color: '#000', minHeight: '100vh', fontFamily: 'Arial Black, sans-serif' }}>
-      <div style={{ borderBottom: '4px solid #000', marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 38, fontWeight: '900', textTransform: 'uppercase' }}>{h1}</h1>
-        {h2 && <h2 style={{ margin: 0, fontSize: 24, fontWeight: '700', textTransform: 'uppercase' }}>{h2}</h2>}
+  const renderSongListPrint = (songsToPrint: Song[], h1: string, h2?: string) => {
+    const hasHighRange = songsToPrint.some(s => s.vocalRange === 'High');
+    const count = songsToPrint.length;
+    
+    // Dynamic font size calculation to ensure single-page fit
+    let fontSize = '36pt';
+    if (count > 15) fontSize = '28pt';
+    if (count > 22) fontSize = '22pt';
+    if (count > 30) fontSize = '18pt';
+
+    return (
+      <div key={h1+h2} style={{ 
+        pageBreakAfter: 'always', 
+        padding: '20px 40px', 
+        background: '#fff', 
+        color: '#000', 
+        height: '98vh', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        fontFamily: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+        boxSizing: 'border-box' 
+      }}>
+        <div style={{ borderBottom: '5px solid #000', marginBottom: 15, paddingBottom: 10 }}>
+          <h1 style={{ margin: 0, fontSize: '42pt', lineHeight: 1, fontWeight: '900', textTransform: 'uppercase' }}>{h1}</h1>
+          {h2 && <h2 style={{ margin: '5px 0 0 0', fontSize: '24pt', fontWeight: '700', textTransform: 'uppercase', opacity: 0.8 }}>{h2}</h2>}
+        </div>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {songsToPrint.map((s, i) => (
+              <li key={s.id+i} style={{ 
+                fontSize: fontSize, 
+                lineHeight: '1.1', 
+                marginBottom: 8, 
+                whiteSpace: 'nowrap', 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis',
+                textTransform: 'uppercase', 
+                fontWeight: '900' 
+              }}>
+                <span style={{ marginRight: 20, opacity: 0.3, display: 'inline-block', width: '1.5em' }}>{i+1}</span>
+                {s.name}{s.vocalRange === 'High' ? '*' : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+        {hasHighRange && (
+          <div style={{ borderTop: '5px solid #000', paddingTop: 10, fontSize: '28pt', fontWeight: '900', letterSpacing: '2px' }}>
+            *DETUNE
+          </div>
+        )}
+        <div className="no-print" style={{ position: 'fixed', top: 20, right: 40 }}>
+          <button style={{ ...styles.button, background: '#000', color: '#fff', marginRight: 10 }} onClick={() => window.print()}>PRINT</button>
+          <button style={{ ...styles.button, background: '#eee', color: '#000', border: '1px solid #000' }} onClick={() => { setIsPrinting(false); setActivePrintId(null); }}>CLOSE</button>
+        </div>
       </div>
-      <div style={{ columnCount: songsToPrint.length > 20 ? 2 : 1, columnGap: 40 }}>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {songsToPrint.map((s, i) => (
-            <li key={s.id+i} style={{ fontSize: songsToPrint.length > 25 ? '24pt' : '32pt', lineHeight: '1.2', marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textTransform: 'uppercase', fontWeight: '900' }}>
-              <span style={{ marginRight: 15, opacity: 0.3 }}>{i+1}</span>{s.name}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="no-print" style={{ position: 'fixed', top: 20, right: 40 }}>
-        <button style={{ ...styles.button, background: '#000', color: '#fff', marginRight: 10 }} onClick={() => window.print()}>PRINT</button>
-        <button style={{ ...styles.button, background: '#eee', color: '#000', border: '1px solid #000' }} onClick={() => setIsPrinting(false)}>CLOSE</button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderPrintView = () => {
     const item = getItemById(); if (!item) return null;
@@ -299,7 +435,8 @@ const App: React.FC = () => {
     }
     if (tab === 'events') {
       const ev = item as Event;
-      return <div style={{ background: '#fff' }}>{ev.setLists.map((e, i) => {
+      const targetSetLists = activePrintId ? ev.setLists.filter(e => e.id === activePrintId) : ev.setLists;
+      return <div style={{ background: '#fff' }}>{targetSetLists.map((e, i) => {
         const sl = e.type === 'setlist' ? setlists.find(s => s.id === e.id) : masterSetlists.find(m => m.id === e.id);
         if (!sl) return null;
         let sToP: Song[] = [];
@@ -311,13 +448,14 @@ const App: React.FC = () => {
     return null;
   };
 
+
   const renderSidebar = () => (
     <div style={styles.sidebar}>
       <h2 style={{ padding: '0 24px', fontSize: 18, marginBottom: 24, color: theme.accent }}>Defyance</h2>
       {(['bands', 'musicians', 'songs', 'setlists', 'master-setlists', 'events', 'tours', 'instruments', 'printouts'] as const).map(t => (
         <div key={t} style={{ ...styles.sidebarItem, background: tab === t ? theme.surfaceAlt : 'transparent', color: tab === t ? theme.accent : theme.text, borderLeft: tab === t ? `4px solid ${theme.accent}` : '4px solid transparent' }} onClick={() => { 
           console.log(`[NAV] Tab click: ${t}. Clearing stack.`);
-          setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); 
+          setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null);
         }}>
           {t === 'master-setlists' ? 'Master SetLists' : (t === 'printouts' ? 'Print Center' : t.charAt(0).toUpperCase() + t.slice(1))}
         </div>
@@ -326,8 +464,19 @@ const App: React.FC = () => {
   );
 
   const renderList = (data: any[]) => {
-    let filtered = data;
+    let filtered = [...data];
     if (tab === 'songs' && songsSearch) filtered = data.filter((s: Song) => s.name.toLowerCase().includes(songsSearch.toLowerCase()) || s.artist.toLowerCase().includes(songsSearch.toLowerCase()));
+    
+    // Custom sort for events: No date first, then chronological
+    if (tab === 'events') {
+      filtered.sort((a: Event, b: Event) => {
+        if (!a.date && !b.date) return 0;
+        if (!a.date) return -1;
+        if (!b.date) return 1;
+        return a.date.localeCompare(b.date);
+      });
+    }
+
     return (
       <div style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -339,10 +488,13 @@ const App: React.FC = () => {
         </div>
         <ul style={styles.list}>{filtered.map(item => {
           const isEvent = tab === 'events'; const past = isEvent && isPast((item as Event).date);
-          const label = isEvent ? `${item.name} (${formatDate((item as Event).date)})` : (tab === 'setlists' ? getSetlistLabel(item as SetList) : item.name);
+          const dateLabel = isEvent && (item as Event).date ? ` (${formatDate((item as Event).date)})` : '';
+          const label = isEvent ? `${item.name}${dateLabel}` : (tab === 'setlists' ? getSetlistLabel(item as SetList) : item.name);
           return (
             <li key={item.id} style={{ ...styles.listItem, opacity: past ? 0.4 : 1 }}>
-              <span style={{ fontWeight: 500, cursor: 'pointer', color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(tab, item.id, false)}>{label}</span>
+              <span style={{ fontWeight: 500, cursor: 'pointer', color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(tab, item.id, false)}>
+                {label}{tab === 'songs' && item.vocalRange === 'High' ? '*' : ''}
+              </span>
               <div style={{ display: 'flex', gap: 8 }}><button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => navigateTo(tab, item.id, true)}>Edit</button><button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => handleDelete(item.id)}>Delete</button></div>
             </li>
           );
@@ -377,7 +529,7 @@ const App: React.FC = () => {
         <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
             <div><h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>{item.name}</h1><p style={{ color: theme.muted, margin: 0 }}>{tab.toUpperCase()}</p></div>
-            <div style={{ display: 'flex', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => setIsPrinting(true)}>Print View</button>)}<button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => setIsEditing(true)}>Edit Details</button></div>
+            <div style={{ display: 'flex', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => { setActivePrintId(null); setIsPrinting(true); }}>Print View</button>)}<button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => setIsEditing(true)}>Edit Details</button></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 32 }}>
             {tab === 'musicians' && (<><div><label style={styles.label}>Email</label><p>{(item as Musician).email || 'N/A'}</p></div><div><label style={styles.label}>Phone</label><p>{(item as Musician).phone || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Bio</label><p>{(item as Musician).bio || 'No bio provided.'}</p></div></>)}
@@ -391,10 +543,22 @@ const App: React.FC = () => {
               const isTour = tab === 'tours'; const past = isTour && isPast((rel as Event).date);
               const label = isTour ? `${rel.name} (${formatDate((rel as Event).date)})` : (tab === 'songs' ? getSetlistLabel(rel as SetList) : rel.name);
               const rTab = rel.type === 'master' ? 'master-setlists' : (rel.type === 'setlist' ? 'setlists' : (tab === 'songs' ? 'setlists' : getRelationshipTab() as any));
+              const hasHigh = rTab === 'songs' && rel.vocalRange === 'High';
               return (
                 <li key={`${rel.type || 'single'}:${rel.id}:${index}`} style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s' }} draggable={(['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} onDragStart={() => setDraggedIndex(index)} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} onDrop={e => { e.preventDefault(); if (draggedIndex !== null && draggedIndex !== index) handleMove(draggedIndex, 'down', index); setDraggedIndex(null); setDragOverIndex(null); }} onDragEnter={e => { e.preventDefault(); setDragOverIndex(index); }} onDragLeave={() => setDragOverIndex(null)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><button style={{ background: 'transparent', border: 'none', color: index === 0 ? theme.muted : theme.accent, cursor: index === 0 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'up')} disabled={index === 0}>▲</button><button style={{ background: 'transparent', border: 'none', color: index === getCurrentRelationships(item).length - 1 ? theme.muted : theme.accent, cursor: index === getCurrentRelationships(item).length - 1 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'down')} disabled={index === getCurrentRelationships(item).length - 1}>▼</button></div>)}<span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(rTab, rel.id, false)}>{label} {rel.artist ? `(${rel.artist})` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}</span></div>
-                  <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => handleUnassign(rel.id, rel.type)}>Remove</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><button style={{ background: 'transparent', border: 'none', color: index === 0 ? theme.muted : theme.accent, cursor: index === 0 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'up')} disabled={index === 0}>▲</button><button style={{ background: 'transparent', border: 'none', color: index === getCurrentRelationships(item).length - 1 ? theme.muted : theme.accent, cursor: index === getCurrentRelationships(item).length - 1 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'down')} disabled={index === getCurrentRelationships(item).length - 1}>▼</button></div>)}<span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(rTab, rel.id, false)}>{label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}</span></div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {tab === 'events' && (
+                      <button 
+                        style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} 
+                        onClick={() => { setActivePrintId(rel.id); setIsPrinting(true); }}
+                        title="Print this setlist"
+                      >
+                        Print
+                      </button>
+                    )}
+                    <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => handleUnassign(rel.id, rel.type)}>Remove</button>
+                  </div>
                 </li>
               );
             })}</ul>
@@ -404,17 +568,33 @@ const App: React.FC = () => {
     );
   };
 
-  const renderPrintoutsTab = () => (
-    <div style={styles.card}>
-      <h2 style={styles.heading}>Print Center</h2>
-      <h3 style={styles.subHeading}>Upcoming Events</h3>
-      <ul style={styles.list}>{events.filter(e => !isPast(e.date)).map(e => (<li key={e.id} style={styles.listItem}><span>{e.name} ({formatDate(e.date)})</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('events'); setSelectedId(e.id); setIsPrinting(true); }}>Print Setlists</button></li>))}</ul>
-      <h3 style={styles.subHeading}>Master SetLists</h3>
-      <ul style={styles.list}>{masterSetlists.map(m => (<li key={m.id} style={styles.listItem}><span>{m.name}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('master-setlists'); setSelectedId(m.id); setIsPrinting(true); }}>Print Floor View</button></li>))}</ul>
-      <h3 style={styles.subHeading}>Individual SetLists</h3>
-      <ul style={styles.list}>{setlists.map(sl => (<li key={sl.id} style={styles.listItem}><span>{getSetlistLabel(sl)}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('setlists'); setSelectedId(sl.id); setIsPrinting(true); }}>Print Set</button></li>))}</ul>
-    </div>
-  );
+  const renderPrintoutsTab = () => {
+    const sortedEvents = [...events]
+      .filter(e => !e.date || !isPast(e.date))
+      .sort((a, b) => {
+        if (!a.date && !b.date) return 0;
+        if (!a.date) return -1;
+        if (!b.date) return 1;
+        return a.date.localeCompare(b.date);
+      });
+
+    return (
+      <div style={styles.card}>
+        <h2 style={styles.heading}>Print Center</h2>
+        <h3 style={styles.subHeading}>Upcoming & Planned Events</h3>
+        <ul style={styles.list}>{sortedEvents.map(e => (
+          <li key={e.id} style={styles.listItem}>
+            <span>{e.name}{e.date ? ` (${formatDate(e.date)})` : ''}</span>
+            <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('events'); setSelectedId(e.id); setIsPrinting(true); }}>Print Setlists</button>
+          </li>
+        ))}</ul>
+        <h3 style={styles.subHeading}>Master SetLists</h3>
+        <ul style={styles.list}>{masterSetlists.map(m => (<li key={m.id} style={styles.listItem}><span>{m.name}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('master-setlists'); setSelectedId(m.id); setIsPrinting(true); }}>Print Floor View</button></li>))}</ul>
+        <h3 style={styles.subHeading}>Individual SetLists</h3>
+        <ul style={styles.list}>{setlists.map(sl => (<li key={sl.id} style={styles.listItem}><span>{getSetlistLabel(sl)}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('setlists'); setSelectedId(sl.id); setIsPrinting(true); }}>Print Set</button></li>))}</ul>
+      </div>
+    );
+  };
 
   return (
     <div style={styles.container}>
