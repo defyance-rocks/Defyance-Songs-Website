@@ -1,4 +1,47 @@
 {
   "version": "2.0.0",
-  "tasks": []
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "build:main",
+      "path": "Defyance.Songs.Website",
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "group": "build",
+      "label": "npm: build:main",
+      "detail": "tsc -p tsconfig.json"
+    },
+    {
+      "type": "npm",
+      "script": "serve",
+      "path": "Defyance.Songs.Website",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^.*$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "wepback-dev-server is starting|Starting server",
+          "endsPattern": "Compiled successfully|Compiled with warnings|successfully"
+        }
+      },
+      "label": "npm: serve",
+      "detail": "webpack serve --mode development"
+    },
+    {
+      "label": "Build & Serve",
+      "dependsOn": [
+        "npm: build:main",
+        "npm: serve"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
 }

@@ -5,20 +5,23 @@ import { Tour } from '../shared/models';
 export const getAllTours = (): Promise<Tour[]> => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT t.id, t.name, GROUP_CONCAT(e.id) AS eventIds
+      `SELECT t.id, t.name, e.id AS eventId, e.position
        FROM tours t
        LEFT JOIN events e ON t.id = e.tourId
-       GROUP BY t.id
-       ORDER BY t.name ASC`,
+       ORDER BY t.name ASC, e.position ASC`,
       [],
       (err, rows) => {
         if (err) return reject(err);
-        const tours: Tour[] = rows.map((row: any) => ({
-          id: row.id,
-          name: row.name,
-          events: row.eventIds ? row.eventIds.split(',') : [],
-        }));
-        resolve(tours);
+        const tourMap = new Map<string, Tour>();
+        rows.forEach((row: any) => {
+          if (!tourMap.has(row.id)) {
+            tourMap.set(row.id, { id: row.id, name: row.name, events: [] });
+          }
+          if (row.eventId) {
+            tourMap.get(row.id)!.events.push(row.eventId);
+          }
+        });
+        resolve(Array.from(tourMap.values()));
       }
     );
   });
@@ -27,52 +30,38 @@ export const getAllTours = (): Promise<Tour[]> => {
 export const createTour = (name: string): Promise<Tour> => {
   return new Promise((resolve, reject) => {
     const id = randomUUID();
-    db.run(
-      `INSERT INTO tours (id, name) VALUES (?, ?)`,
-      [id, name],
-      function (err) {
-        if (err) return reject(err);
-        resolve({ id, name, events: [] });
-      }
-    );
+    db.run(`INSERT INTO tours (id, name) VALUES (?, ?)`, [id, name], function (err) {
+      if (err) return reject(err);
+      resolve({ id, name, events: [] });
+    });
   });
 };
 
 export const updateTour = (id: string, name: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    db.run(
-      `UPDATE tours SET name = ? WHERE id = ?`,
-      [name, id],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
-    );
+    db.run(`UPDATE tours SET name = ? WHERE id = ?`, [name, id], (err) => {
+      if (err) reject(err); else resolve();
+    });
   });
 };
 
 export const deleteTour = (id: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    // We don't delete events, just unassign them from the tour
-    db.run(`UPDATE events SET tourId = NULL WHERE tourId = ?`, [id], (err) => {
-      if (err) return reject(err);
-      db.run(`DELETE FROM tours WHERE id = ?`, [id], function (err) {
-        if (err) return reject(err);
-        resolve();
+    db.serialize(() => {
+      db.run(`UPDATE events SET tourId = NULL, position = NULL WHERE tourId = ?`, [id]);
+      db.run(`DELETE FROM tours WHERE id = ?`, [id], (err) => {
+        if (err) reject(err); else resolve();
       });
     });
   });
 };
 
-export const addEventToTour = (tourId: string, eventId: string): Promise<void> => {
+export const addEventToTour = (tourId: string, eventId: string, position: number): Promise<void> => {
   return new Promise((resolve, reject) => {
     db.run(
-      `UPDATE events SET tourId = ? WHERE id = ?`,
-      [tourId, eventId],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      `UPDATE events SET tourId = ?, position = ? WHERE id = ?`,
+      [tourId, position, eventId],
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };
@@ -80,12 +69,27 @@ export const addEventToTour = (tourId: string, eventId: string): Promise<void> =
 export const removeEventFromTour = (eventId: string): Promise<void> => {
   return new Promise((resolve, reject) => {
     db.run(
-      `UPDATE events SET tourId = NULL WHERE id = ?`,
+      `UPDATE events SET tourId = NULL, position = NULL WHERE id = ?`,
       [eventId],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      (err) => { if (err) reject(err); else resolve(); }
     );
+  });
+};
+
+export const reorderEventsInTour = (tourId: string, eventIds: string[]): Promise<void> => {
+  console.log(`[Repo] Reordering Tour ${tourId} with ${eventIds.length} events`);
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`UPDATE events SET position = ? WHERE id = ? AND tourId = ?`);
+      eventIds.forEach((id, idx) => {
+        stmt.run(idx, id, tourId);
+      });
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) { console.error('[Repo] Tour reorder failed:', err); db.run('ROLLBACK'); reject(err); }
+        else { console.log('[Repo] Tour reorder successful'); resolve(); }
+      });
+    });
   });
 };

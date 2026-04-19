@@ -5,60 +5,45 @@ import { Song } from '../shared/models';
 export const getAllSongs = (): Promise<Song[]> => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT s.id, s.name, s.artist, s.vocalRange, s.notes, s.link,
-              GROUP_CONCAT(sv.musicianId) AS vocalistIds
+      `SELECT s.*, sv.musicianId
        FROM songs s
        LEFT JOIN song_vocalists sv ON s.id = sv.songId
-       GROUP BY s.id`,
+       ORDER BY s.name ASC`,
       [],
       (err, rows) => {
         if (err) return reject(err);
-        const songs: Song[] = rows.map((row: any) => ({
-          id: row.id,
-          name: row.name,
-          artist: row.artist,
-          vocalRange: row.vocalRange || null,
-          notes: row.notes || null,
-          link: row.link || null,
-          vocalists: row.vocalistIds ? row.vocalistIds.split(',') : [],
-        }));
-        resolve(songs);
+        const songMap = new Map<string, Song>();
+        rows.forEach((row: any) => {
+          if (!songMap.has(row.id)) {
+            songMap.set(row.id, {
+              id: row.id,
+              name: row.name,
+              artist: row.artist,
+              vocalRange: row.vocalRange || null,
+              notes: row.notes || null,
+              link: row.link || null,
+              vocalists: [],
+            });
+          }
+          if (row.musicianId) {
+            songMap.get(row.id)!.vocalists.push(row.musicianId);
+          }
+        });
+        resolve(Array.from(songMap.values()));
       }
     );
   });
 };
 
-export const createSong = (
-  name: string,
-  artist: string,
-  vocalRange?: 'High' | 'Low' | null,
-  notes?: string | null,
-  link?: string | null
-): Promise<Song> => {
+export const createSong = (name: string, artist: string, vocalRange?: 'High' | 'Low' | null, notes?: string | null, link?: string | null): Promise<Song> => {
   return new Promise((resolve, reject) => {
     const id = randomUUID();
-    const params: any[] = [
-      id,
-      name,
-      artist,
-      vocalRange ?? null,
-      notes ?? null,
-      link ?? null,
-    ];
     db.run(
       `INSERT INTO songs (id, name, artist, vocalRange, notes, link) VALUES (?, ?, ?, ?, ?, ?)`,
-      params,
+      [id, name, artist, vocalRange ?? null, notes ?? null, link ?? null],
       function (err) {
         if (err) return reject(err);
-        resolve({
-          id,
-          name,
-          artist,
-          vocalRange: vocalRange || null,
-          notes: notes || null,
-          link: link || null,
-          vocalists: [],
-        });
+        resolve({ id, name, artist, vocalRange: vocalRange || null, notes: notes || null, link: link || null, vocalists: [] });
       }
     );
   });
@@ -66,9 +51,14 @@ export const createSong = (
 
 export const deleteSong = (id: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    db.run(`DELETE FROM songs WHERE id = ?`, [id], function (err) {
-      if (err) return reject(err);
-      resolve();
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      db.run(`DELETE FROM song_vocalists WHERE songId = ?`, [id]);
+      db.run(`DELETE FROM setlist_songs WHERE songId = ?`, [id]);
+      db.run(`DELETE FROM songs WHERE id = ?`, [id], (err) => {
+        if (err) { db.run('ROLLBACK'); reject(err); }
+        else { db.run('COMMIT'); resolve(); }
+      });
     });
   });
 };
@@ -78,10 +68,7 @@ export const assignVocalistToSong = (songId: string, musicianId: string): Promis
     db.run(
       `INSERT OR IGNORE INTO song_vocalists (songId, musicianId) VALUES (?, ?)`,
       [songId, musicianId],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };
@@ -91,38 +78,17 @@ export const removeVocalistFromSong = (songId: string, musicianId: string): Prom
     db.run(
       `DELETE FROM song_vocalists WHERE songId = ? AND musicianId = ?`,
       [songId, musicianId],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };
 
-export const updateSong = (
-  id: string,
-  name: string,
-  artist: string,
-  vocalRange?: 'High' | 'Low' | null,
-  notes?: string | null,
-  link?: string | null
-): Promise<void> => {
+export const updateSong = (id: string, name: string, artist: string, vocalRange?: 'High' | 'Low' | null, notes?: string | null, link?: string | null): Promise<void> => {
   return new Promise((resolve, reject) => {
-    const params: any[] = [
-      name,
-      artist,
-      vocalRange ?? null,
-      notes ?? null,
-      link ?? null,
-      id,
-    ];
     db.run(
       `UPDATE songs SET name = ?, artist = ?, vocalRange = ?, notes = ?, link = ? WHERE id = ?`,
-      params,
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      [name, artist, vocalRange ?? null, notes ?? null, link ?? null, id],
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };

@@ -1,4 +1,44 @@
 {
   "version": "0.2.0",
-  "configurations": []
+  "configurations": [
+    {
+      "name": "Electron: Main",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/Defyance.Songs.Website",
+      "runtimeExecutable": "${workspaceFolder}/Defyance.Songs.Website/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/Defyance.Songs.Website/node_modules/.bin/electron.cmd"
+      },
+      "args": [
+        "--remote-debugging-port=9222",
+        "."
+      ],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "outFiles": [
+        "${workspaceFolder}/Defyance.Songs.Website/dist/main/**/*.js"
+      ],
+      "preLaunchTask": "Build & Serve"
+    },
+    {
+      "name": "Electron: Renderer",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/Defyance.Songs.Website/src/renderer",
+      "timeout": 30000,
+      "urlFilter": "http://localhost:3002/*"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Electron: All",
+      "configurations": [
+        "Electron: Main",
+        "Electron: Renderer"
+      ]
+    }
+  ]
 }

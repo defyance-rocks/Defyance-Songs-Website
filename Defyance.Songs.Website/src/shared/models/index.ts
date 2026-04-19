@@ -41,6 +41,12 @@ export interface SetList {
   songs: string[]; // Ordered Song IDs
 }
 
+export interface EventSetListEntry {
+  id: string;
+  type: 'setlist' | 'master';
+  position: number;
+}
+
 export interface Event {
   id: string;
   name: string;
@@ -49,11 +55,17 @@ export interface Event {
   time: string; // HH:MM
   tourId?: string | null;
   position?: number;
-  setLists: string[]; // Ordered SetList IDs
+  setLists: EventSetListEntry[]; // Ordered entries
 }
 
 export interface Tour {
   id: string;
   name: string;
   events: string[]; // Ordered Event IDs
+}
+
+export interface MasterSetList {
+  id: string;
+  name: string;
+  setlists: string[]; // Ordered SetList IDs
 }

@@ -55,7 +55,17 @@ import {
   getAllTours,
   removeEventFromTour,
   updateTour,
+  reorderEventsInTour,
 } from '../database/tourRepository';
+import {
+  addSetListToMaster,
+  createMasterSetList,
+  deleteMasterSetList,
+  getAllMasterSetLists,
+  removeSetListFromMaster,
+  updateMasterSetList,
+  reorderSetListsInMaster,
+} from '../database/masterSetlistRepository';
 
 export const setupIPC = async () => {
   await initDatabase();
@@ -101,22 +111,48 @@ export const setupIPC = async () => {
   ipcMain.handle('setlists:delete', async (_event, id: string) => await deleteSetList(id));
   ipcMain.handle('setlists:add-song', async (_event, setlistId: string, songId: string, position: number) => await addSongToSetList(setlistId, songId, position));
   ipcMain.handle('setlists:remove-song', async (_event, setlistId: string, songId: string) => await removeSongFromSetList(setlistId, songId));
-  ipcMain.handle('setlists:reorder-songs', async (_event, setlistId: string, songIds: string[]) => await reorderSongsInSetList(setlistId, songIds));
+  ipcMain.handle('setlists:reorder-songs', async (_event, setlistId: string, songIds: string[]) => {
+    console.log(`[IPC] Reordering songs for setlist ${setlistId}`);
+    return await reorderSongsInSetList(setlistId, songIds);
+  });
 
   // EVENTS
   ipcMain.handle('events:list', async () => await getAllEvents());
   ipcMain.handle('events:create', async (_event, name: string, location: string, date: string, time: string, tourId?: string | null) => await createEvent(name, location, date, time, tourId));
   ipcMain.handle('events:update', async (_event, id: string, name: string, location: string, date: string, time: string, tourId?: string | null) => await updateEvent(id, name, location, date, time, tourId));
   ipcMain.handle('events:delete', async (_event, id: string) => await deleteEvent(id));
-  ipcMain.handle('events:add-setlist', async (_event, eventId: string, setlistId: string, position: number) => await addSetListToEvent(eventId, setlistId, position));
-  ipcMain.handle('events:remove-setlist', async (_event, eventId: string, setlistId: string) => await removeSetListFromEvent(eventId, setlistId));
-  ipcMain.handle('events:reorder-setlists', async (_event, eventId: string, setlistIds: string[]) => await reorderSetListsInEvent(eventId, setlistIds));
+  ipcMain.handle('events:add-setlist', async (_event, eventId: string, id: string, type: 'setlist' | 'master', position: number) => {
+    return await addSetListToEvent(eventId, id, type, position);
+  });
+  ipcMain.handle('events:remove-setlist', async (_event, eventId: string, id: string, type?: 'setlist' | 'master') => {
+    return await removeSetListFromEvent(eventId, id, type);
+  });
+  ipcMain.handle('events:reorder-setlists', async (_event, eventId: string, entries: { id: string, type: 'setlist' | 'master' }[]) => {
+    console.log(`[IPC] Reordering setlists for event ${eventId}`);
+    return await reorderSetListsInEvent(eventId, entries);
+  });
 
   // TOURS
   ipcMain.handle('tours:list', async () => await getAllTours());
   ipcMain.handle('tours:create', async (_event, name: string) => await createTour(name));
   ipcMain.handle('tours:update', async (_event, id: string, name: string) => await updateTour(id, name));
   ipcMain.handle('tours:delete', async (_event, id: string) => await deleteTour(id));
-  ipcMain.handle('tours:add-event', async (_event, tourId: string, eventId: string) => await addEventToTour(tourId, eventId));
+  ipcMain.handle('tours:add-event', async (_event, tourId: string, eventId: string, position: number) => await addEventToTour(tourId, eventId, position));
   ipcMain.handle('tours:remove-event', async (_event, eventId: string) => await removeEventFromTour(eventId));
+  ipcMain.handle('tours:reorder-events', async (_event, tourId: string, eventIds: string[]) => {
+    console.log(`[IPC] Reordering events for tour ${tourId}`);
+    return await reorderEventsInTour(tourId, eventIds);
+  });
+
+  // MASTER SETLISTS
+  ipcMain.handle('master-setlists:list', async () => await getAllMasterSetLists());
+  ipcMain.handle('master-setlists:create', async (_event, name: string) => await createMasterSetList(name));
+  ipcMain.handle('master-setlists:update', async (_event, id: string, name: string) => await updateMasterSetList(id, name));
+  ipcMain.handle('master-setlists:delete', async (_event, id: string) => await deleteMasterSetList(id));
+  ipcMain.handle('master-setlists:add-setlist', async (_event, masterId: string, setlistId: string, position: number) => await addSetListToMaster(masterId, setlistId, position));
+  ipcMain.handle('master-setlists:remove-setlist', async (_event, masterId: string, setlistId: string) => await removeSetListFromMaster(masterId, setlistId));
+  ipcMain.handle('master-setlists:reorder-setlists', async (_event, masterId: string, setlistIds: string[]) => {
+    console.log(`[IPC] Reordering setlists for master setlist ${masterId}`);
+    return await reorderSetListsInMaster(masterId, setlistIds);
+  });
 };

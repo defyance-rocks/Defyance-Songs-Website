@@ -2,23 +2,34 @@ import { randomUUID } from 'crypto';
 import db from './index';
 import { SetList } from '../shared/models';
 
-export const getAllSetLists = (): Promise<SetList[]> => {
+export interface SetListWithEvent extends SetList {
+  eventName?: string;
+}
+
+export const getAllSetLists = (): Promise<SetListWithEvent[]> => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT sl.id, sl.name, GROUP_CONCAT(sls.songId) AS songIds
+      `SELECT sl.id, sl.name, ss.songId, ss.position, e.name as eventName
        FROM setlists sl
-       LEFT JOIN setlist_songs sls ON sl.id = sls.setlistId
-       GROUP BY sl.id
-       ORDER BY sl.name ASC`,
+       LEFT JOIN setlist_songs ss ON sl.id = ss.setlistId
+       LEFT JOIN event_setlists esl ON sl.id = esl.setlistId
+       LEFT JOIN events e ON esl.eventId = e.id
+       ORDER BY e.date ASC, sl.name ASC, ss.position ASC`,
       [],
       (err, rows) => {
         if (err) return reject(err);
-        const setLists: SetList[] = rows.map((row: any) => ({
-          id: row.id,
-          name: row.name,
-          songs: row.songIds ? row.songIds.split(',') : [],
-        }));
-        resolve(setLists);
+        
+        const setlistMap = new Map<string, SetListWithEvent>();
+        rows.forEach((row: any) => {
+          if (!setlistMap.has(row.id)) {
+            setlistMap.set(row.id, { id: row.id, name: row.name, songs: [], eventName: row.eventName });
+          }
+          if (row.songId) {
+            setlistMap.get(row.id)!.songs.push(row.songId);
+          }
+        });
+        
+        resolve(Array.from(setlistMap.values()));
       }
     );
   });
@@ -27,38 +38,31 @@ export const getAllSetLists = (): Promise<SetList[]> => {
 export const createSetList = (name: string): Promise<SetList> => {
   return new Promise((resolve, reject) => {
     const id = randomUUID();
-    db.run(
-      `INSERT INTO setlists (id, name) VALUES (?, ?)`,
-      [id, name],
-      function (err) {
-        if (err) return reject(err);
-        resolve({ id, name, songs: [] });
-      }
-    );
+    db.run(`INSERT INTO setlists (id, name) VALUES (?, ?)`, [id, name], function (err) {
+      if (err) return reject(err);
+      resolve({ id, name, songs: [] });
+    });
   });
 };
 
 export const updateSetList = (id: string, name: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    db.run(
-      `UPDATE setlists SET name = ? WHERE id = ?`,
-      [name, id],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
-    );
+    db.run(`UPDATE setlists SET name = ? WHERE id = ?`, [name, id], (err) => {
+      if (err) reject(err); else resolve();
+    });
   });
 };
 
 export const deleteSetList = (id: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    // Delete associations first
-    db.run(`DELETE FROM setlist_songs WHERE setlistId = ?`, [id], (err) => {
-      if (err) return reject(err);
-      db.run(`DELETE FROM setlists WHERE id = ?`, [id], function (err) {
-        if (err) return reject(err);
-        resolve();
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      db.run(`DELETE FROM setlist_songs WHERE setlistId = ?`, [id]);
+      db.run(`DELETE FROM event_setlists WHERE setlistId = ?`, [id]);
+      db.run(`DELETE FROM master_setlist_setlists WHERE setlistId = ?`, [id]);
+      db.run(`DELETE FROM setlists WHERE id = ?`, [id], (err) => {
+        if (err) { db.run('ROLLBACK'); reject(err); }
+        else { db.run('COMMIT'); resolve(); }
       });
     });
   });
@@ -69,10 +73,7 @@ export const addSongToSetList = (setlistId: string, songId: string, position: nu
     db.run(
       `INSERT OR REPLACE INTO setlist_songs (setlistId, songId, position) VALUES (?, ?, ?)`,
       [setlistId, songId, position],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };
@@ -82,10 +83,7 @@ export const removeSongFromSetList = (setlistId: string, songId: string): Promis
     db.run(
       `DELETE FROM setlist_songs WHERE setlistId = ? AND songId = ?`,
       [setlistId, songId],
-      function (err) {
-        if (err) return reject(err);
-        resolve();
-      }
+      (err) => { if (err) reject(err); else resolve(); }
     );
   });
 };
@@ -94,14 +92,17 @@ export const reorderSongsInSetList = (setlistId: string, songIds: string[]): Pro
   return new Promise((resolve, reject) => {
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
-      const stmt = db.prepare(`UPDATE setlist_songs SET position = ? WHERE setlistId = ? AND songId = ?`);
-      songIds.forEach((songId, index) => {
-        stmt.run(index, setlistId, songId);
-      });
-      stmt.finalize();
-      db.run('COMMIT', (err) => {
-        if (err) return reject(err);
-        resolve();
+      db.run(`DELETE FROM setlist_songs WHERE setlistId = ?`, [setlistId], (err) => {
+        if (err) { db.run('ROLLBACK'); return reject(err); }
+        const stmt = db.prepare(`INSERT INTO setlist_songs (setlistId, songId, position) VALUES (?, ?, ?)`);
+        songIds.forEach((songId, index) => {
+          stmt.run(setlistId, songId, index);
+        });
+        stmt.finalize();
+        db.run('COMMIT', (err) => {
+          if (err) { db.run('ROLLBACK'); reject(err); }
+          else resolve();
+        });
       });
     });
   });

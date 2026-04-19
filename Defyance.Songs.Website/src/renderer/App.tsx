@@ -1,91 +1,41 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 const { ipcRenderer } = (window as any).require('electron');
 
-const predefinedInstruments = [
-  'Guitar',
-  'Bass Guitar',
-  'Drums',
-  'Piano',
-  'Keyboard',
-  'Vocals',
-  'Saxophone',
-  'Trumpet',
-  'Violin',
-  'Cello',
-  'Flute',
-  'Clarinet',
-  'Percussion',
-  'Other'
-];
+interface Band { id: string; name: string; musicians: string[]; }
+interface Musician { id: string; name: string; phone?: string; email?: string; bio?: string; instruments: string[]; bands: string[]; }
+interface Instrument { id: string; name: string; musicians: string[]; }
+interface Song { id: string; name: string; artist: string; vocalists: string[]; vocalRange?: 'High' | 'Low' | null; notes?: string; link?: string; }
+interface SetList { id: string; name: string; songs: string[]; eventName?: string; }
+interface EventSetListEntry { id: string; type: 'setlist' | 'master'; position: number; }
+interface Event { id: string; name: string; location: string; date: string; time: string; tourId?: string | null; setLists: EventSetListEntry[]; }
+interface Tour { id: string; name: string; events: string[]; }
+interface MasterSetList { id: string; name: string; setlists: string[]; }
 
-interface Band {
-  id: string;
-  name: string;
-  musicians: string[];
-}
-
-interface Musician {
-  id: string;
-  name: string;
-  phone?: string;
-  email?: string;
-  bio?: string;
-  instruments: string[];
-  bands: string[];
-}
-
-interface Instrument {
-  id: string;
-  name: string;
-  musicians: string[];
-}
-
-interface Song {
-  id: string;
-  name: string;
-  artist: string;
-  vocalists: string[];
-  vocalRange?: 'High' | 'Low' | null;
-  notes?: string;
-  link?: string;
-}
-
-interface SetList {
-  id: string;
-  name: string;
-  songs: string[];
-}
-
-interface Event {
-  id: string;
-  name: string;
-  location: string;
-  date: string;
-  time: string;
-  tourId?: string | null;
-  setLists: string[];
-}
-
-interface Tour {
-  id: string;
-  name: string;
-  events: string[];
+interface NavState {
+  tab: 'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours' | 'master-setlists' | 'printouts';
+  selectedId: string | null;
+  isEditing: boolean;
 }
 
 const theme = {
-  background: '#0f1217',
-  surface: '#161b22',
-  surfaceAlt: '#1f2937',
-  text: '#e5e7eb',
-  muted: '#9ca3af',
-  border: '#334155',
-  accent: '#8b5cf6',
-  danger: '#ef4444',
+  background: '#0f1217', sidebar: '#161b22', surface: '#1c2128', surfaceAlt: '#2d333b',
+  text: '#adbac7', textHighlight: '#cdd9e5', muted: '#768390', border: '#444c56',
+  accent: '#316dca', accentHover: '#388bfd', danger: '#da3633', success: '#3fb950',
 };
 
 const App: React.FC = () => {
-  const [tab, setTab] = useState<'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours'>('bands');
+  const [tab, setTab] = useState<NavState['tab']>('bands');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [navStack, setNavStack] = useState<NavState[]>([]);
+
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [songsSearch, setSongsSearch] = useState('');
+
   const [bands, setBands] = useState<Band[]>([]);
   const [musicians, setMusicians] = useState<Musician[]>([]);
   const [instruments, setInstruments] = useState<Instrument[]>([]);
@@ -93,921 +43,390 @@ const App: React.FC = () => {
   const [setlists, setSetlists] = useState<SetList[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [tours, setTours] = useState<Tour[]>([]);
+  const [masterSetlists, setMasterSetlists] = useState<MasterSetList[]>([]);
 
-  const [bandName, setBandName] = useState('');
-  const [musicName, setMusicName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [bio, setBio] = useState('');
-  const [instrumentName, setInstrumentName] = useState('');
-  
-  const [selectedBandId, setSelectedBandId] = useState<string | null>(null);
-  const [selectedMusicianId, setSelectedMusicianId] = useState<string | null>(null);
-  
-  const [songName, setSongName] = useState('');
-  const [songArtist, setSongArtist] = useState('');
-  const [songVocalRange, setSongVocalRange] = useState<'High' | 'Low' | ''>('');
-  const [songNotes, setSongNotes] = useState('');
-  const [songLink, setSongLink] = useState('');
-  
-  const [setlistName, setSetlistName] = useState('');
-  const [selectedSetlistId, setSelectedSetlistId] = useState<string | null>(null);
-  
-  const [eventName, setEventName] = useState('');
-  const [eventLocation, setEventLocation] = useState('');
-  const [eventDate, setEventDate] = useState('');
-  const [eventTime, setEventTime] = useState('');
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  
-  const [tourName, setTourName] = useState('');
-  const [selectedTourId, setSelectedTourId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editArtist, setEditArtist] = useState('');
+  const [editVocalRange, setEditVocalRange] = useState<'High' | 'Low' | ''>('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editLink, setEditLink] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [assignId, setAssignId] = useState('');
 
-  const [assignInstrumentId, setAssignInstrumentId] = useState('');
-  const [assignVocalistId, setAssignVocalistId] = useState('');
-  const [assignSongId, setAssignSongId] = useState('');
-  const [assignSetlistId, setAssignSetlistId] = useState('');
-  const [assignEventId, setAssignEventId] = useState('');
+  const firstInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
 
-  const loadBands = async () => {
-    const result = await ipcRenderer.invoke('bands:list');
-    setBands(result);
-  };
-
-  const loadMusicians = async () => {
-    const result = await ipcRenderer.invoke('musicians:list');
-    console.log('Loaded musicians:', result);
-    setMusicians(result);
-  };
-
-  const loadInstruments = async () => {
-    const result = await ipcRenderer.invoke('instruments:list');
-    setInstruments(result);
-  };
-
-  const loadSetlists = async () => {
-    const result = await ipcRenderer.invoke('setlists:list');
-    setSetlists(result);
-  };
-
-  const loadEvents = async () => {
-    const result = await ipcRenderer.invoke('events:list');
-    setEvents(result);
-  };
-
-  const loadTours = async () => {
-    const result = await ipcRenderer.invoke('tours:list');
-    setTours(result);
-  };
-
-  useEffect(() => {
-    loadBands();
-    loadMusicians();
-    loadInstruments();
-    loadSongs();
-    loadSetlists();
-    loadEvents();
-    loadTours();
+  const loadAll = useCallback(async () => {
+    console.log('[Data] Syncing database...');
+    const [b, m, i, s, sl, e, t, ms] = await Promise.all([
+      ipcRenderer.invoke('bands:list'), ipcRenderer.invoke('musicians:list'),
+      ipcRenderer.invoke('instruments:list'), ipcRenderer.invoke('songs:list'),
+      ipcRenderer.invoke('setlists:list'), ipcRenderer.invoke('events:list'),
+      ipcRenderer.invoke('tours:list'), ipcRenderer.invoke('master-setlists:list'),
+    ]);
+    setBands(b); setMusicians(m); setInstruments(i); setSongs(s); setSetlists(sl); setEvents(e); setTours(t); setMasterSetlists(ms);
   }, []);
 
-  const addBand = async () => {
-    if (!bandName.trim()) return;
-    await ipcRenderer.invoke('bands:create', bandName.trim());
-    setBandName('');
-    loadBands();
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const handleBack = useCallback(() => {
+    console.log('[NAV] Going back...');
+    if (isPrinting) { setIsPrinting(false); return; }
+    if (navStack.length > 0) {
+      const prev = navStack[navStack.length - 1];
+      setNavStack(navStack.slice(0, -1));
+      setTab(prev.tab);
+      setSelectedId(prev.selectedId);
+      setIsEditing(prev.isEditing);
+      setAssignSearch('');
+      if (prev.selectedId) {
+        const item = [...bands, ...musicians, ...songs, ...instruments, ...setlists, ...events, ...tours, ...masterSetlists].find(x => x.id === prev.selectedId) as any;
+        if (item) {
+          setEditName(item.name); setEditPhone(item.phone || ''); setEditEmail(item.email || ''); setEditBio(item.bio || '');
+          setEditArtist(item.artist || ''); setEditVocalRange(item.vocalRange || ''); setEditNotes(item.notes || '');
+          setEditLink(item.link || ''); setEditLocation(item.location || ''); setEditDate(item.date || ''); setEditTime(item.time || '');
+        }
+      }
+    } else {
+      setSelectedId(null);
+      setIsEditing(false);
+    }
+  }, [navStack, isPrinting, bands, musicians, songs, instruments, setlists, events, tours, masterSetlists]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') handleBack(); };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [handleBack]);
+
+  useEffect(() => { if (isEditing && firstInputRef.current) firstInputRef.current.focus(); }, [isEditing]);
+
+  const getItemById = () => {
+    if (!selectedId) return null;
+    const all = [...bands, ...musicians, ...songs, ...instruments, ...setlists, ...events, ...tours, ...masterSetlists];
+    return all.find(x => x.id === selectedId) || null;
   };
 
-  const removeBand = async (id: string) => {
-    await ipcRenderer.invoke('bands:delete', id);
-    loadBands();
-    if (selectedBandId === id) setSelectedBandId(null);
+  const getDataForTab = () => {
+    if (tab === 'bands') return bands; if (tab === 'musicians') return musicians; if (tab === 'songs') return songs;
+    if (tab === 'instruments') return instruments; if (tab === 'setlists') return setlists;
+    if (tab === 'master-setlists') return masterSetlists; if (tab === 'events') return events;
+    if (tab === 'tours') return tours; return [];
   };
 
-  const assignMusician = async (bandId: string, musicianId: string) => {
-    await ipcRenderer.invoke('bands:assign-musician', bandId, musicianId);
-    loadBands();
+  const formatUrl = (u: string) => (!u || u.startsWith('http') ? u : `https://${u}`);
+  const formatDate = (d: string) => { if (!d) return ''; const [y, m, day] = d.split('-'); return `${m}/${day}/${y.slice(-2)}`; };
+  const isPast = (d: string) => { if (!d) return false; const t = new Date(); t.setHours(0,0,0,0); return new Date(d + 'T00:00:00') < t; };
+  const getSetlistLabel = (sl: SetList) => sl.eventName ? `${sl.eventName} - ${sl.name}` : sl.name;
+
+  const navigateTo = (newTab: NavState['tab'], id: string | null = null, edit: boolean = false) => {
+    console.log(`[NAV] Navigating to ${newTab}, ID: ${id}, Edit: ${edit}`);
+    setNavStack(prev => [...prev, { tab, selectedId, isEditing }]);
+    setTab(newTab); setSelectedId(id); setIsEditing(edit); setAssignSearch(''); if (!edit) setSongsSearch('');
+    if (id) {
+      const all = [...bands, ...musicians, ...songs, ...instruments, ...setlists, ...events, ...tours, ...masterSetlists];
+      const item = all.find(x => x.id === id) as any;
+      if (item) {
+        setEditName(item.name); setEditPhone(item.phone || ''); setEditEmail(item.email || ''); setEditBio(item.bio || '');
+        setEditArtist(item.artist || ''); setEditVocalRange(item.vocalRange || ''); setEditNotes(item.notes || '');
+        setEditLink(item.link || ''); setEditLocation(item.location || ''); setEditDate(item.date || ''); setEditTime(item.time || '');
+      }
+    } else {
+      setEditName(''); setEditPhone(''); setEditEmail(''); setEditBio(''); setEditArtist(''); setEditVocalRange(''); setEditNotes(''); setEditLink(''); setEditLocation(''); setEditDate(''); setEditTime('');
+    }
   };
 
-  const removeMusicianFromBand = async (bandId: string, musicianId: string) => {
-    await ipcRenderer.invoke('bands:remove-musician', bandId, musicianId);
-    loadBands();
+  const handleSave = async () => {
+    if (!editName.trim()) return;
+    const link = formatUrl(editLink.trim());
+    const args: any[] = isEditing && selectedId ? [selectedId, editName] : [editName];
+    if (tab === 'musicians') args.push(editPhone, editEmail, editBio);
+    if (tab === 'songs') args.push(editArtist, editVocalRange || null, editNotes, link);
+    if (tab === 'events') args.push(editLocation, editDate, editTime);
+    await ipcRenderer.invoke(`${tab.replace('master-', 'master')}:${isEditing && selectedId ? 'update' : 'create'}`, ...args);
+    setNavStack([]); setIsEditing(false); setSelectedId(null); loadAll();
   };
 
-  const addMusician = async () => {
-    if (!musicName.trim()) return;
-    await ipcRenderer.invoke('musicians:create', musicName.trim(), phone.trim() || null, email.trim() || null, bio.trim() || null);
-    setMusicName('');
-    setPhone('');
-    setEmail('');
-    setBio('');
-    loadMusicians();
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure?')) return;
+    const prefix = tab.replace('master-', 'master');
+    await ipcRenderer.invoke(`${prefix}:delete`, id);
+    if (selectedId === id) setSelectedId(null);
+    loadAll();
   };
 
-  const removeMusician = async (id: string) => {
-    await ipcRenderer.invoke('musicians:delete', id);
-    loadMusicians();
-    loadBands();
-    loadInstruments();
+  const getAvailableForAssignment = () => {
+    const item = getItemById(); if (!item) return [];
+    if (tab === 'bands') return musicians.filter(m => !(item as Band).musicians.includes(m.id));
+    if (tab === 'musicians') return instruments.filter(i => !(item as Musician).instruments.includes(i.id));
+    if (tab === 'songs') {
+      const assigned = setlists.filter(sl => sl.songs.includes((item as Song).id)).map(sl => sl.id);
+      return setlists.filter(sl => !assigned.includes(sl.id));
+    }
+    if (tab === 'setlists') return songs.filter(s => !(item as SetList).songs.includes(s.id));
+    if (tab === 'master-setlists') return setlists.filter(sl => !(item as MasterSetList).setlists.includes(sl.id));
+    if (tab === 'events') {
+      const assignedIds = (item as Event).setLists.map(sl => sl.id);
+      const availSL = setlists.filter(sl => !assignedIds.includes(sl.id)).map(sl => ({ ...sl, type: 'setlist' }));
+      const availMSL = masterSetlists.filter(msl => !assignedIds.includes(msl.id)).map(msl => ({ ...msl, type: 'master' }));
+      return [...availSL, ...availMSL] as any[];
+    }
+    if (tab === 'tours') return events.filter(e => !(item as Tour).events.includes(e.id));
+    return [];
   };
 
-  const addInstrument = async () => {
-    if (!instrumentName.trim()) return;
-    await ipcRenderer.invoke('instruments:create', instrumentName.trim());
-    setInstrumentName('');
-    loadInstruments();
+  const getCurrentRelationships = (item: any) => {
+    if (tab === 'bands') return item.musicians.map((id: string) => musicians.find(m => m.id === id)).filter(Boolean);
+    if (tab === 'musicians') return item.instruments.map((id: string) => instruments.find(i => i.id === id)).filter(Boolean);
+    if (tab === 'songs') return setlists.filter(sl => sl.songs.includes((item as Song).id));
+    if (tab === 'setlists') return item.songs.map((id: string) => songs.find(s => s.id === id)).filter(Boolean);
+    if (tab === 'master-setlists') return item.setlists.map((id: string) => setlists.find(s => s.id === id)).filter(Boolean);
+    if (tab === 'events') return (item as Event).setLists.map(e => {
+      const x = e.type === 'setlist' ? setlists.find(s => s.id === e.id) : masterSetlists.find(m => m.id === e.id);
+      return x ? { ...x, type: e.type } : null;
+    }).filter(Boolean);
+    if (tab === 'tours') return item.events.map((id: string) => events.find(e => e.id === id)).filter(Boolean);
+    return [];
   };
 
-  const assignInstrumentToMusician = async (musicianId: string, instrumentId: string) => {
-    console.log(`Assigning instrument ${instrumentId} to musician ${musicianId}`);
-    await ipcRenderer.invoke('instruments:assign-to-musician', musicianId, instrumentId);
-    console.log('Assignment completed, reloading musicians');
-    const assignments = await ipcRenderer.invoke('debug:assignments');
-    console.log('Current assignments after assignment:', assignments);
-    loadMusicians();
-    loadInstruments();
+  const handleAssign = async () => {
+    if (!selectedId || !assignId) return;
+    if (tab === 'bands') await ipcRenderer.invoke('bands:assign-musician', selectedId, assignId);
+    else if (tab === 'musicians') await ipcRenderer.invoke('instruments:assign-to-musician', selectedId, assignId);
+    else if (tab === 'songs') await ipcRenderer.invoke('setlists:add-song', assignId, selectedId, (setlists.find(s => s.id === assignId)?.songs.length || 0));
+    else if (tab === 'setlists') await ipcRenderer.invoke('setlists:add-song', selectedId, assignId, (getItemById() as SetList).songs.length);
+    else if (tab === 'master-setlists') await ipcRenderer.invoke('master-setlists:add-setlist', selectedId, assignId, (getItemById() as MasterSetList).setlists.length);
+    else if (tab === 'events') { const [t, id] = assignId.split(':'); await ipcRenderer.invoke('events:add-setlist', selectedId, id, t, (getItemById() as Event).setLists.length); }
+    else if (tab === 'tours') await ipcRenderer.invoke('tours:add-event', selectedId, assignId, (getItemById() as Tour).events.length);
+    setAssignId(''); setAssignSearch(''); loadAll();
   };
 
-  const removeInstrument = async (id: string) => {
-    await ipcRenderer.invoke('instruments:delete', id);
-    loadInstruments();
-    loadMusicians();
+  const handleUnassign = async (targetId: string, targetType?: string) => {
+    if (!selectedId) return;
+    if (tab === 'songs') await ipcRenderer.invoke('setlists:remove-song', targetId, selectedId);
+    else {
+      const prefix = tab.replace('master-', 'master');
+      let method = 'remove-song';
+      if (tab === 'musicians') method = 'remove-from-musician';
+      else if (tab === 'bands') method = 'remove-musician';
+      else if (tab === 'tours') method = 'remove-event';
+      else if (tab === 'events') method = 'remove-setlist';
+      else if (tab === 'master-setlists') method = 'remove-setlist';
+      await ipcRenderer.invoke(`${prefix}:${method}`, selectedId, targetId, targetType);
+    }
+    loadAll();
   };
 
-  const removeInstrumentFromMusician = async (musicianId: string, instrumentId: string) => {
-    await ipcRenderer.invoke('instruments:remove-from-musician', musicianId, instrumentId);
-    loadMusicians();
+  const handleMove = async (index: number, direction: 'up' | 'down', targetIndex?: number) => {
+    const item = getItemById() as any; if (!item) return;
+    const list = [...(item.songs || item.setlists || item.setLists || item.events)];
+    const target = targetIndex !== undefined ? targetIndex : (direction === 'up' ? index - 1 : index + 1);
+    if (target < 0 || target >= list.length || target === index) return;
+    const [moved] = list.splice(index, 1); list.splice(target, 0, moved);
+    const prefix = tab.replace('master-', 'master');
+    const method = tab === 'setlists' ? 'reorder-songs' : (tab === 'events' ? 'reorder-setlists' : (tab === 'tours' ? 'reorder-events' : 'reorder-setlists'));
+    await ipcRenderer.invoke(`${prefix}:${method}`, selectedId, tab === 'events' ? list.map(e => ({ id: e.id, type: e.type })) : list);
+    loadAll();
   };
 
-  const formatMusicianWithInstruments = (musician: Musician) => {
-    const instrumentNames = musician.instruments
-      .map((instId) => instruments.find((inst) => inst.id === instId)?.name || '')
-      .filter(Boolean);
-    return instrumentNames.length > 0 ? `${musician.name} (${instrumentNames.join(', ')})` : musician.name;
+  const getRelationshipTitle = () => {
+    if (tab === 'bands') return 'Band Members'; if (tab === 'musicians') return 'Instruments'; if (tab === 'songs') return 'Associated SetLists';
+    if (tab === 'setlists') return 'Songs'; if (tab === 'master-setlists') return 'SetLists'; if (tab === 'events') return 'SetLists';
+    if (tab === 'tours') return 'Events'; return 'Relationships';
   };
 
-  async function loadSongs() {
-    const result = await ipcRenderer.invoke('songs:list');
-    setSongs(result);
-  }
+  const getRelationshipTab = () => {
+    if (tab === 'bands' || tab === 'songs') return 'musicians'; if (tab === 'musicians') return 'instruments';
+    if (tab === 'setlists' || tab === 'master-setlists') return 'songs';
+    if (tab === 'events') return 'setlists'; if (tab === 'tours') return 'events';
+    return '';
+  };
 
-  const addSong = async () => {
-    if (!songName.trim() || !songArtist.trim()) return;
-    await ipcRenderer.invoke(
-      'songs:create',
-      songName.trim(),
-      songArtist.trim(),
-      null,
-      null,
-      songVocalRange || null,
-      songNotes.trim() || null,
-      songLink.trim() || null
+  const styles: { [key: string]: React.CSSProperties } = {
+    container: { display: 'flex', height: '100vh', background: theme.background, color: theme.text, fontFamily: 'Segoe UI, sans-serif' },
+    sidebar: { width: 240, background: theme.sidebar, borderRight: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column', padding: '16px 0' },
+    sidebarItem: { padding: '12px 24px', cursor: 'pointer', transition: 'background 0.2s', fontSize: 14, fontWeight: 500 },
+    main: { flex: 1, overflowY: 'auto', padding: '32px' },
+    card: { background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 24, marginBottom: 24 },
+    heading: { margin: '0 0 16px 0', color: theme.textHighlight },
+    subHeading: { margin: '24px 0 12px 0', fontSize: 16, fontWeight: 600, color: theme.textHighlight },
+    list: { listStyle: 'none', padding: 0, margin: 0 },
+    listItem: { padding: '12px 16px', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    button: { padding: '8px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+    input: { padding: '10px 12px', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, width: '100%', marginBottom: 12 },
+    label: { display: 'block', fontSize: 12, color: theme.muted, marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' },
+    link: { color: theme.accent, cursor: 'pointer' },
+    badge: { padding: '2px 8px', borderRadius: 12, fontSize: 11, background: theme.surfaceAlt, border: `1px solid ${theme.border}`, marginLeft: 8 },
+    backBtn: { background: 'transparent', color: theme.muted, border: `1px solid ${theme.border}`, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 12px', borderRadius: 6 },
+  };
+
+  const renderSongListPrint = (songsToPrint: Song[], h1: string, h2?: string) => (
+    <div key={h1+h2} style={{ pageBreakAfter: 'always', padding: '20px 40px', background: '#fff', color: '#000', minHeight: '100vh', fontFamily: 'Arial Black, sans-serif' }}>
+      <div style={{ borderBottom: '4px solid #000', marginBottom: 20 }}>
+        <h1 style={{ margin: 0, fontSize: 38, fontWeight: '900', textTransform: 'uppercase' }}>{h1}</h1>
+        {h2 && <h2 style={{ margin: 0, fontSize: 24, fontWeight: '700', textTransform: 'uppercase' }}>{h2}</h2>}
+      </div>
+      <div style={{ columnCount: songsToPrint.length > 20 ? 2 : 1, columnGap: 40 }}>
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {songsToPrint.map((s, i) => (
+            <li key={s.id+i} style={{ fontSize: songsToPrint.length > 25 ? '24pt' : '32pt', lineHeight: '1.2', marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textTransform: 'uppercase', fontWeight: '900' }}>
+              <span style={{ marginRight: 15, opacity: 0.3 }}>{i+1}</span>{s.name}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="no-print" style={{ position: 'fixed', top: 20, right: 40 }}>
+        <button style={{ ...styles.button, background: '#000', color: '#fff', marginRight: 10 }} onClick={() => window.print()}>PRINT</button>
+        <button style={{ ...styles.button, background: '#eee', color: '#000', border: '1px solid #000' }} onClick={() => setIsPrinting(false)}>CLOSE</button>
+      </div>
+    </div>
+  );
+
+  const renderPrintView = () => {
+    const item = getItemById(); if (!item) return null;
+    if (tab === 'setlists' || tab === 'printouts') {
+      const sl = item as SetList;
+      return renderSongListPrint(sl.songs.map(id => songs.find(s => s.id === id)).filter(Boolean) as Song[], sl.eventName || '', sl.name);
+    }
+    if (tab === 'master-setlists') {
+      const msl = item as MasterSetList;
+      const all: Song[] = []; msl.setlists.forEach(id => { const sl = setlists.find(s => s.id === id); if (sl) sl.songs.forEach(sid => { const s = songs.find(x => x.id === sid); if (s) all.push(s); }); });
+      return renderSongListPrint(all, (item as MasterSetList).name);
+    }
+    if (tab === 'events') {
+      const ev = item as Event;
+      return <div style={{ background: '#fff' }}>{ev.setLists.map((e, i) => {
+        const sl = e.type === 'setlist' ? setlists.find(s => s.id === e.id) : masterSetlists.find(m => m.id === e.id);
+        if (!sl) return null;
+        let sToP: Song[] = [];
+        if (e.type === 'setlist') sToP = (sl as SetList).songs.map(id => songs.find(s => s.id === id)).filter(Boolean) as Song[];
+        else (sl as MasterSetList).setlists.forEach(id => { const sll = setlists.find(s => s.id === id); if (sll) sll.songs.forEach(sid => { const s = songs.find(x => x.id === sid); if (s) sToP.push(s); }); });
+        return renderSongListPrint(sToP, ev.name, sl.name);
+      })}</div>;
+    }
+    return null;
+  };
+
+  const renderSidebar = () => (
+    <div style={styles.sidebar}>
+      <h2 style={{ padding: '0 24px', fontSize: 18, marginBottom: 24, color: theme.accent }}>Defyance</h2>
+      {(['bands', 'musicians', 'songs', 'setlists', 'master-setlists', 'events', 'tours', 'instruments', 'printouts'] as const).map(t => (
+        <div key={t} style={{ ...styles.sidebarItem, background: tab === t ? theme.surfaceAlt : 'transparent', color: tab === t ? theme.accent : theme.text, borderLeft: tab === t ? `4px solid ${theme.accent}` : '4px solid transparent' }} onClick={() => { 
+          console.log(`[NAV] Tab click: ${t}. Clearing stack.`);
+          setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); 
+        }}>
+          {t === 'master-setlists' ? 'Master SetLists' : (t === 'printouts' ? 'Print Center' : t.charAt(0).toUpperCase() + t.slice(1))}
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderList = (data: any[]) => {
+    let filtered = data;
+    if (tab === 'songs' && songsSearch) filtered = data.filter((s: Song) => s.name.toLowerCase().includes(songsSearch.toLowerCase()) || s.artist.toLowerCase().includes(songsSearch.toLowerCase()));
+    return (
+      <div style={styles.card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h2 style={styles.heading}>{tab.toUpperCase()}</h2>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {tab === 'songs' && <input style={{ ...styles.input, marginBottom: 0, width: 250 }} placeholder="Search..." value={songsSearch} onChange={e => setSongsSearch(e.target.value)} />}
+            <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => navigateTo(tab, null, true)}>+ NEW</button>
+          </div>
+        </div>
+        <ul style={styles.list}>{filtered.map(item => {
+          const isEvent = tab === 'events'; const past = isEvent && isPast((item as Event).date);
+          const label = isEvent ? `${item.name} (${formatDate((item as Event).date)})` : (tab === 'setlists' ? getSetlistLabel(item as SetList) : item.name);
+          return (
+            <li key={item.id} style={{ ...styles.listItem, opacity: past ? 0.4 : 1 }}>
+              <span style={{ fontWeight: 500, cursor: 'pointer', color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(tab, item.id, false)}>{label}</span>
+              <div style={{ display: 'flex', gap: 8 }}><button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => navigateTo(tab, item.id, true)}>Edit</button><button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => handleDelete(item.id)}>Delete</button></div>
+            </li>
+          );
+        })}</ul>
+      </div>
     );
-    setSongName('');
-    setSongArtist('');
-    setSongVocalRange('');
-    setSongNotes('');
-    setSongLink('');
-    loadSongs();
   };
 
-  const removeSong = async (id: string) => {
-    await ipcRenderer.invoke('songs:delete', id);
-    loadSongs();
+  const renderForm = () => (
+    <div style={{ maxWidth: 900 }}>
+      <button style={styles.backBtn} onClick={handleBack}>← Back</button>
+      <div style={styles.card}>
+        <h2 style={styles.heading}>{selectedId ? 'EDIT' : 'NEW'} {tab.toUpperCase()}</h2>
+        <div style={{ maxWidth: 600 }}>
+          <label style={styles.label}>Name</label>
+          <input ref={firstInputRef as any} style={styles.input} value={editName} onChange={e => setEditName(e.target.value)} placeholder="Name" />
+          {tab === 'musicians' && (<><label style={styles.label}>Phone</label><input style={styles.input} value={editPhone} onChange={e => setEditPhone(e.target.value)} /><label style={styles.label}>Email</label><input style={styles.input} value={editEmail} onChange={e => setEditEmail(e.target.value)} /><label style={styles.label}>Bio</label><textarea style={{ ...styles.input, minHeight: 100 }} value={editBio} onChange={e => setEditBio(e.target.value)} /></>)}
+          {tab === 'songs' && (<><label style={styles.label}>Artist</label><input style={styles.input} value={editArtist} onChange={e => setEditArtist(e.target.value)} /><label style={styles.label}>Vocal Range</label><select style={styles.input} value={editVocalRange} onChange={e => setEditVocalRange(e.target.value as any)}><option value="">None</option><option value="High">High</option><option value="Low">Low</option></select><label style={styles.label}>Notes</label><textarea style={{ ...styles.input, minHeight: 80 }} value={editNotes} onChange={e => setEditNotes(e.target.value)} /><label style={styles.label}>Link</label><input style={styles.input} value={editLink} onChange={(e) => setEditLink(e.target.value)} /></>)}
+          {tab === 'events' && (<><label style={styles.label}>Location</label><input style={styles.input} value={editLocation} onChange={e => setEditLocation(e.target.value)} /><div style={{ display: 'flex', gap: 16 }}><div style={{ flex: 1 }}><label style={styles.label}>Date</label><input style={styles.input} type="date" value={editDate} onChange={e => setEditDate(e.target.value)} /></div><div style={{ flex: 1 }}><label style={styles.label}>Time</label><input style={styles.input} type="time" value={editTime} onChange={e => setEditTime(e.target.value)} /></div></div></>)}
+          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}><button style={{ ...styles.button, background: theme.accent, color: '#fff', flex: 1 }} onClick={handleSave}>Save</button><button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, flex: 1 }} onClick={handleBack}>Cancel</button></div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDetails = () => {
+    const item = getItemById(); if (!item) return <div style={{ maxWidth: 900 }}><button style={styles.backBtn} onClick={handleBack}>← Back</button><p>Item not found.</p></div>;
+    const available = getAvailableForAssignment().filter((a: any) => a.name.toLowerCase().includes(assignSearch.toLowerCase()) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())));
+    return (
+      <div style={{ maxWidth: 900 }}>
+        <button style={styles.backBtn} onClick={handleBack}>← Back</button>
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+            <div><h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>{item.name}</h1><p style={{ color: theme.muted, margin: 0 }}>{tab.toUpperCase()}</p></div>
+            <div style={{ display: 'flex', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => setIsPrinting(true)}>Print View</button>)}<button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => setIsEditing(true)}>Edit Details</button></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 32 }}>
+            {tab === 'musicians' && (<><div><label style={styles.label}>Email</label><p>{(item as Musician).email || 'N/A'}</p></div><div><label style={styles.label}>Phone</label><p>{(item as Musician).phone || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Bio</label><p>{(item as Musician).bio || 'No bio provided.'}</p></div></>)}
+            {tab === 'songs' && (<><div><label style={styles.label}>Artist</label><p>{(item as Song).artist}</p></div><div><label style={styles.label}>Vocal Range</label><p>{(item as Song).vocalRange || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Notes</label><p>{(item as Song).notes || 'None'}</p></div>{(item as Song).link && <div><label style={styles.label}>Link</label><a href={(item as Song).link} target="_blank" rel="noreferrer" style={styles.link}>{(item as Song).link}</a></div>}</>)}
+            {tab === 'events' && (<><div><label style={styles.label}>Location</label><p>{(item as Event).location}</p></div><div><label style={styles.label}>Date</label><p>{(item as Event).date}</p></div><div><label style={styles.label}>Time</label><p>{(item as Event).time}</p></div></>)}
+          </div>
+          <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 24 }}>
+            <h3 style={styles.subHeading}>{getRelationshipTitle()}</h3>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}><input style={{ ...styles.input, marginBottom: 0, flex: 2 }} placeholder="Search..." value={assignSearch} onChange={e => setAssignSearch(e.target.value)} /><select style={{ ...styles.input, marginBottom: 0, flex: 3 }} value={assignId} onChange={e => setAssignId(e.target.value)}><option value="">Select...</option>{available.map((avail: any) => (<option key={avail.type ? `${avail.type}:${avail.id}` : avail.id} value={avail.type ? `${avail.type}:${avail.id}` : avail.id}>{tab === 'songs' ? getSetlistLabel(avail as SetList) : (avail.name + (avail.artist ? ` - ${avail.artist}` : '') + (avail.type === 'master' ? ' (Master)' : ''))}</option>))}</select><button style={{ ...styles.button, background: theme.success, color: '#fff', flex: 1 }} onClick={handleAssign}>Assign</button></div>
+            <ul style={styles.list}>{getCurrentRelationships(item).map((rel: any, index: number) => {
+              const isTour = tab === 'tours'; const past = isTour && isPast((rel as Event).date);
+              const label = isTour ? `${rel.name} (${formatDate((rel as Event).date)})` : (tab === 'songs' ? getSetlistLabel(rel as SetList) : rel.name);
+              const rTab = rel.type === 'master' ? 'master-setlists' : (rel.type === 'setlist' ? 'setlists' : (tab === 'songs' ? 'setlists' : getRelationshipTab() as any));
+              return (
+                <li key={`${rel.type || 'single'}:${rel.id}:${index}`} style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s' }} draggable={(['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} onDragStart={() => setDraggedIndex(index)} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} onDrop={e => { e.preventDefault(); if (draggedIndex !== null && draggedIndex !== index) handleMove(draggedIndex, 'down', index); setDraggedIndex(null); setDragOverIndex(null); }} onDragEnter={e => { e.preventDefault(); setDragOverIndex(index); }} onDragLeave={() => setDragOverIndex(null)}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (<div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><button style={{ background: 'transparent', border: 'none', color: index === 0 ? theme.muted : theme.accent, cursor: index === 0 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'up')} disabled={index === 0}>▲</button><button style={{ background: 'transparent', border: 'none', color: index === getCurrentRelationships(item).length - 1 ? theme.muted : theme.accent, cursor: index === getCurrentRelationships(item).length - 1 ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => handleMove(index, 'down')} disabled={index === getCurrentRelationships(item).length - 1}>▼</button></div>)}<span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none' }} onClick={() => navigateTo(rTab, rel.id, false)}>{label} {rel.artist ? `(${rel.artist})` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}</span></div>
+                  <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => handleUnassign(rel.id, rel.type)}>Remove</button>
+                </li>
+              );
+            })}</ul>
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  const assignVocalist = async (songId: string, musicianId: string) => {
-    await ipcRenderer.invoke('songs:assign-vocalist', songId, musicianId);
-    loadSongs();
-  };
-
-  const removeVocalistFromSong = async (songId: string, musicianId: string) => {
-    await ipcRenderer.invoke('songs:remove-vocalist', songId, musicianId);
-    loadSongs();
-  };
-
-  const addSetlist = async () => {
-    if (!setlistName.trim()) return;
-    await ipcRenderer.invoke('setlists:create', setlistName.trim());
-    setSetlistName('');
-    loadSetlists();
-  };
-
-  const removeSetlist = async (id: string) => {
-    await ipcRenderer.invoke('setlists:delete', id);
-    loadSetlists();
-    if (selectedSetlistId === id) setSelectedSetlistId(null);
-  };
-
-  const addSongToSetlist = async (setlistId: string, songId: string) => {
-    const setlist = setlists.find(s => s.id === setlistId);
-    const position = setlist ? setlist.songs.length : 0;
-    await ipcRenderer.invoke('setlists:add-song', setlistId, songId, position);
-    loadSetlists();
-  };
-
-  const removeSongFromSetlist = async (setlistId: string, songId: string) => {
-    await ipcRenderer.invoke('setlists:remove-song', setlistId, songId);
-    loadSetlists();
-  };
-
-  const addEvent = async () => {
-    if (!eventName.trim()) return;
-    await ipcRenderer.invoke('events:create', eventName.trim(), eventLocation.trim(), eventDate, eventTime);
-    setEventName('');
-    setEventLocation('');
-    setEventDate('');
-    setEventTime('');
-    loadEvents();
-  };
-
-  const removeEvent = async (id: string) => {
-    await ipcRenderer.invoke('events:delete', id);
-    loadEvents();
-    if (selectedEventId === id) setSelectedEventId(null);
-  };
-
-  const addSetlistToEvent = async (eventId: string, setlistId: string) => {
-    const event = events.find(e => e.id === eventId);
-    const position = event ? event.setLists.length : 0;
-    await ipcRenderer.invoke('events:add-setlist', eventId, setlistId, position);
-    loadEvents();
-  };
-
-  const removeSetlistFromEvent = async (eventId: string, setlistId: string) => {
-    await ipcRenderer.invoke('events:remove-setlist', eventId, setlistId);
-    loadEvents();
-  };
-
-  const addTour = async () => {
-    if (!tourName.trim()) return;
-    await ipcRenderer.invoke('tours:create', tourName.trim());
-    setTourName('');
-    loadTours();
-  };
-
-  const removeTour = async (id: string) => {
-    await ipcRenderer.invoke('tours:delete', id);
-    loadTours();
-    if (selectedTourId === id) setSelectedTourId(null);
-  };
-
-  const addEventToTour = async (tourId: string, eventId: string) => {
-    await ipcRenderer.invoke('tours:add-event', tourId, eventId);
-    loadTours();
-    loadEvents();
-  };
-
-  const removeEventFromTour = async (eventId: string) => {
-    await ipcRenderer.invoke('tours:remove-event', eventId);
-    loadTours();
-    loadEvents();
-  };
-
-  const buttonStyle = {
-    padding: '8px 16px',
-    background: theme.surfaceAlt,
-    color: theme.text,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 6,
-    cursor: 'pointer',
-  };
-
-  const inputStyle = {
-    padding: 10,
-    background: theme.surfaceAlt,
-    color: theme.text,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-  };
+  const renderPrintoutsTab = () => (
+    <div style={styles.card}>
+      <h2 style={styles.heading}>Print Center</h2>
+      <h3 style={styles.subHeading}>Upcoming Events</h3>
+      <ul style={styles.list}>{events.filter(e => !isPast(e.date)).map(e => (<li key={e.id} style={styles.listItem}><span>{e.name} ({formatDate(e.date)})</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('events'); setSelectedId(e.id); setIsPrinting(true); }}>Print Setlists</button></li>))}</ul>
+      <h3 style={styles.subHeading}>Master SetLists</h3>
+      <ul style={styles.list}>{masterSetlists.map(m => (<li key={m.id} style={styles.listItem}><span>{m.name}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('master-setlists'); setSelectedId(m.id); setIsPrinting(true); }}>Print Floor View</button></li>))}</ul>
+      <h3 style={styles.subHeading}>Individual SetLists</h3>
+      <ul style={styles.list}>{setlists.map(sl => (<li key={sl.id} style={styles.listItem}><span>{getSetlistLabel(sl)}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => { setTab('setlists'); setSelectedId(sl.id); setIsPrinting(true); }}>Print Set</button></li>))}</ul>
+    </div>
+  );
 
   return (
-    <div style={{ minHeight: '100vh', padding: '24px', fontFamily: 'Inter, sans-serif', background: theme.background, color: theme.text }}>
-      <h1 style={{ marginBottom: 12 }}>Defyance Songs Website</h1>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-        <button
-          onClick={() => setTab('bands')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'bands' ? theme.accent : theme.surface,
-            color: tab === 'bands' ? '#fff' : theme.text,
-          }}
-        >
-          Bands
-        </button>
-        <button
-          onClick={() => setTab('musicians')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'musicians' ? theme.accent : theme.surface,
-            color: tab === 'musicians' ? '#fff' : theme.text,
-          }}
-        >
-          Musicians
-        </button>
-        <button
-          onClick={() => setTab('songs')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'songs' ? theme.accent : theme.surface,
-            color: tab === 'songs' ? '#fff' : theme.text,
-          }}
-        >
-          Songs
-        </button>
-        <button
-          onClick={() => setTab('setlists')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'setlists' ? theme.accent : theme.surface,
-            color: tab === 'setlists' ? '#fff' : theme.text,
-          }}
-        >
-          SetLists
-        </button>
-        <button
-          onClick={() => setTab('events')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'events' ? theme.accent : theme.surface,
-            color: tab === 'events' ? '#fff' : theme.text,
-          }}
-        >
-          Events
-        </button>
-        <button
-          onClick={() => setTab('tours')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'tours' ? theme.accent : theme.surface,
-            color: tab === 'tours' ? '#fff' : theme.text,
-          }}
-        >
-          Tours
-        </button>
-        <button
-          onClick={() => setTab('instruments')}
-          style={{
-            ...buttonStyle,
-            background: tab === 'instruments' ? theme.accent : theme.surface,
-            color: tab === 'instruments' ? '#fff' : theme.text,
-          }}
-        >
-          Instruments
-        </button>
-      </div>
-
-      {tab === 'bands' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Bands</h2>
-            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input value={bandName} onChange={(e) => setBandName(e.target.value)} placeholder="New band name" style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addBand} style={buttonStyle}>Add Band</button>
-            </div>
-            <div style={{ marginBottom: 16, color: theme.muted }}>
-              Select a band to manage members.
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {bands.length === 0 && <li style={{ color: theme.muted }}>No bands yet.</li>}
-              {bands.map((band) => (
-                <li key={band.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <span>{band.name}</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setSelectedBandId(band.id)} style={buttonStyle}>Manage</button>
-                    <button onClick={() => removeBand(band.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {selectedBandId && (
-              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
-                <h3 style={{ marginBottom: 16 }}>Band members</h3>
-                {(() => {
-                  const selectedBand = bands.find((b) => b.id === selectedBandId);
-                  if (!selectedBand) return <p>Selected band not found.</p>;
-                  const members = musicians.filter((m) => selectedBand.musicians.includes(m.id));
-                  const availableMusicians = musicians.filter((m) => !selectedBand.musicians.includes(m.id));
-                  return (
-                    <>
-                      <div style={{ marginBottom: 18 }}>
-                        <strong>{selectedBand.name}</strong>
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ marginBottom: 12 }}>Current members</h4>
-                        {members.length === 0 && <p style={{ color: theme.muted }}>No members assigned.</p>}
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {members.map((member) => (
-                            <li key={member.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                              <span>{formatMusicianWithInstruments(member)}</span>
-                              <button onClick={() => removeMusicianFromBand(selectedBand.id, member.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                Remove
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 style={{ marginBottom: 12 }}>Add member</h4>
-                        {availableMusicians.length === 0 ? (
-                          <p style={{ color: theme.muted }}>No available musicians to add.</p>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <select id="assign-musician" style={{ ...inputStyle, width: 220 }}>
-                              {availableMusicians.map((musician) => (
-                                <option key={musician.id} value={musician.id}>{formatMusicianWithInstruments(musician)}</option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => {
-                                const select = document.getElementById('assign-musician') as HTMLSelectElement | null;
-                                if (!select || !select.value) return;
-                                assignMusician(selectedBand.id, select.value);
-                              }}
-                              style={buttonStyle}
-                            >
-                              Add Member
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {tab === 'musicians' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Musicians</h2>
-            <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
-              <input value={musicName} onChange={(e) => setMusicName(e.target.value)} placeholder="Name" style={inputStyle} />
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={inputStyle} />
-              <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" style={inputStyle} />
-              <textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio" style={{ ...inputStyle, minHeight: 96 }} />
-              <button onClick={addMusician} style={buttonStyle}>Add Musician</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {musicians.length === 0 && <li style={{ color: theme.muted }}>No musicians yet.</li>}
-              {musicians.map((musician) => (
-                <li key={musician.id} style={{ marginBottom: 14, padding: 16, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: theme.text }}>{musician.name}</div>
-                      <div style={{ color: theme.muted }}>{musician.email || musician.phone}</div>
-                      <div style={{ fontSize: 13, color: theme.muted, marginTop: 6 }}>{musician.bio}</div>
-                      {musician.instruments.length > 0 && (
-                        <div style={{ marginTop: 10, color: theme.text }}>
-                          <strong>Instruments: </strong>
-                          {musician.instruments
-                            .map((instId) => instruments.find((inst) => inst.id === instId)?.name || '')
-                            .filter(Boolean)
-                            .join(', ')}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => setSelectedMusicianId(musician.id)} style={buttonStyle}>Manage</button>
-                      <button onClick={() => removeMusician(musician.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {selectedMusicianId && (
-              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
-                <h3 style={{ marginBottom: 16 }}>Manage musician</h3>
-                {(() => {
-                  const selectedMusician = musicians.find((m) => m.id === selectedMusicianId);
-                  if (!selectedMusician) return <p>Selected musician not found.</p>;
-                  return (
-                    <>
-                      <div style={{ marginBottom: 18 }}>
-                        <strong>{selectedMusician.name}</strong>
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ marginBottom: 12 }}>Instruments</h4>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {selectedMusician.instruments.map((instId) => {
-                            const instrument = instruments.find((i) => i.id === instId);
-                            return instrument ? (
-                              <li key={instrument.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                                <span>{instrument.name}</span>
-                                <button onClick={() => removeInstrumentFromMusician(selectedMusician.id, instrument.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                  Remove
-                                </button>
-                              </li>
-                            ) : null;
-                          })}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 style={{ marginBottom: 12 }}>Assign instrument</h4>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <select value={assignInstrumentId} onChange={(e) => setAssignInstrumentId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-                            <option value="">Select instrument</option>
-                            {instruments
-                              .filter((inst) => !selectedMusician.instruments.includes(inst.id))
-                              .map((instrument) => (
-                                <option key={instrument.id} value={instrument.id}>{instrument.name}</option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => {
-                              if (!assignInstrumentId) return;
-                              assignInstrumentToMusician(selectedMusician.id, assignInstrumentId);
-                              setAssignInstrumentId('');
-                            }}
-                            style={buttonStyle}
-                          >
-                            Assign
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {tab === 'songs' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Songs</h2>
-            <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
-              <input value={songName} onChange={(e) => setSongName(e.target.value)} placeholder="Song name" style={inputStyle} />
-              <input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artist" style={inputStyle} />
-              <select value={songVocalRange} onChange={(e) => setSongVocalRange(e.target.value as 'High' | 'Low' | '')} style={inputStyle}>
-                <option value="">Vocal Range</option>
-                <option value="High">High</option>
-                <option value="Low">Low</option>
-              </select>
-              <textarea value={songNotes} onChange={(e) => setSongNotes(e.target.value)} placeholder="Notes" style={{ ...inputStyle, minHeight: 96 }} />
-              <input value={songLink} onChange={(e) => setSongLink(e.target.value)} placeholder="Link" style={inputStyle} />
-              <button onClick={addSong} style={buttonStyle}>Add Song</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {songs.length === 0 && <li style={{ color: theme.muted }}>No songs yet.</li>}
-              {songs.map((song) => (
-                <li key={song.id} style={{ marginBottom: 14, padding: 16, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: theme.text }}>{song.name}</div>
-                      <div style={{ color: theme.muted }}>{song.artist}</div>
-                      {song.vocalRange && <div style={{ color: theme.muted, marginTop: 6 }}>Vocal range: {song.vocalRange}</div>}
-                      {song.notes && <div style={{ fontSize: 13, color: theme.muted, marginTop: 6 }}>{song.notes}</div>}
-                      {song.link && (
-                        <div style={{ marginTop: 6 }}>
-                          <a href={song.link} target="_blank" rel="noreferrer" style={{ color: theme.accent }}>{song.link}</a>
-                        </div>
-                      )}
-                    </div>
-                    <button onClick={() => removeSong(song.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                      Delete
-                    </button>
-                  </div>
-                  <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                      <strong style={{ color: theme.text }}>Vocalists</strong>
-                    </div>
-                    {song.vocalists.length === 0 ? (
-                      <p style={{ color: theme.muted }}>No vocalists assigned.</p>
-                    ) : (
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {song.vocalists.map((musicianId) => {
-                          const musician = musicians.find((m) => m.id === musicianId);
-                          return (
-                            musician && (
-                              <li key={musician.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surface, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                                <span>{formatMusicianWithInstruments(musician)}</span>
-                                <button onClick={() => removeVocalistFromSong(song.id, musician.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                  Remove
-                                </button>
-                              </li>
-                            )
-                          );
-                        })}
-                      </ul>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <select value={assignVocalistId} onChange={(e) => setAssignVocalistId(e.target.value)} style={{ ...inputStyle, width: 220 }}>
-                        <option value="">Select musician</option>
-                        {musicians
-                          .filter((m) => !song.vocalists.includes(m.id))
-                          .map((musician) => (
-                            <option key={musician.id} value={musician.id}>{formatMusicianWithInstruments(musician)}</option>
-                          ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          if (!assignVocalistId) return;
-                          assignVocalist(song.id, assignVocalistId);
-                          setAssignVocalistId('');
-                        }}
-                        style={buttonStyle}
-                      >
-                        Assign Vocalist
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
-
-      {tab === 'instruments' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Instruments</h2>
-            <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
-              <input
-                type="text"
-                placeholder="Instrument name"
-                value={instrumentName}
-                onChange={(e) => setInstrumentName(e.target.value)}
-                style={inputStyle}
-              />
-              <button onClick={addInstrument} style={buttonStyle}>Add Instrument</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {instruments.length === 0 && <li style={{ color: theme.muted }}>No instruments yet.</li>}
-              {instruments.map((instrument) => (
-                <li key={instrument.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <div>
-                    <div>{instrument.name}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => removeInstrument(instrument.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
-      {tab === 'setlists' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>SetLists</h2>
-            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input value={setlistName} onChange={(e) => setSetlistName(e.target.value)} placeholder="New setlist name" style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addSetlist} style={buttonStyle}>Add SetList</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {setlists.length === 0 && <li style={{ color: theme.muted }}>No setlists yet.</li>}
-              {setlists.map((setlist) => (
-                <li key={setlist.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <span>{setlist.name}</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setSelectedSetlistId(setlist.id)} style={buttonStyle}>Manage</button>
-                    <button onClick={() => removeSetlist(setlist.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {selectedSetlistId && (
-              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
-                <h3 style={{ marginBottom: 16 }}>Manage SetList</h3>
-                {(() => {
-                  const selectedSetlist = setlists.find((s) => s.id === selectedSetlistId);
-                  if (!selectedSetlist) return <p>Selected setlist not found.</p>;
-                  return (
-                    <>
-                      <div style={{ marginBottom: 18 }}>
-                        <strong>{selectedSetlist.name}</strong>
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ marginBottom: 12 }}>Songs</h4>
-                        {selectedSetlist.songs.length === 0 && <p style={{ color: theme.muted }}>No songs in this setlist.</p>}
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {selectedSetlist.songs.map((songId) => {
-                            const song = songs.find(s => s.id === songId);
-                            return song ? (
-                              <li key={song.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                                <span>{song.name} - {song.artist}</span>
-                                <button onClick={() => removeSongFromSetlist(selectedSetlist.id, song.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                  Remove
-                                </button>
-                              </li>
-                            ) : null;
-                          })}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 style={{ marginBottom: 12 }}>Add Song</h4>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <select value={assignSongId} onChange={(e) => setAssignSongId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-                            <option value="">Select song</option>
-                            {songs
-                              .filter((s) => !selectedSetlist.songs.includes(s.id))
-                              .map((song) => (
-                                <option key={song.id} value={song.id}>{song.name} - {song.artist}</option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => {
-                              if (!assignSongId) return;
-                              addSongToSetlist(selectedSetlist.id, assignSongId);
-                              setAssignSongId('');
-                            }}
-                            style={buttonStyle}
-                          >
-                            Add
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {tab === 'events' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Events</h2>
-            <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
-              <input value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Event name" style={inputStyle} />
-              <input value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} placeholder="Location" style={inputStyle} />
-              <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} style={inputStyle} />
-              <input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} style={inputStyle} />
-              <button onClick={addEvent} style={buttonStyle}>Add Event</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {events.length === 0 && <li style={{ color: theme.muted }}>No events yet.</li>}
-              {events.map((event) => (
-                <li key={event.id} style={{ marginBottom: 14, padding: 16, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: theme.text }}>{event.name}</div>
-                      <div style={{ color: theme.muted }}>{event.location} - {event.date} {event.time}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => setSelectedEventId(event.id)} style={buttonStyle}>Manage</button>
-                      <button onClick={() => removeEvent(event.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {selectedEventId && (
-              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
-                <h3 style={{ marginBottom: 16 }}>Manage Event</h3>
-                {(() => {
-                  const selectedEvent = events.find((e) => e.id === selectedEventId);
-                  if (!selectedEvent) return <p>Selected event not found.</p>;
-                  return (
-                    <>
-                      <div style={{ marginBottom: 18 }}>
-                        <strong>{selectedEvent.name}</strong>
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ marginBottom: 12 }}>SetLists</h4>
-                        {selectedEvent.setLists.length === 0 && <p style={{ color: theme.muted }}>No setlists assigned.</p>}
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {selectedEvent.setLists.map((setlistId) => {
-                            const setlist = setlists.find(s => s.id === setlistId);
-                            return setlist ? (
-                              <li key={setlist.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                                <span>{setlist.name}</span>
-                                <button onClick={() => removeSetlistFromEvent(selectedEvent.id, setlist.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                  Remove
-                                </button>
-                              </li>
-                            ) : null;
-                          })}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 style={{ marginBottom: 12 }}>Assign SetList</h4>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <select value={assignSetlistId} onChange={(e) => setAssignSetlistId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-                            <option value="">Select setlist</option>
-                            {setlists
-                              .filter((s) => !selectedEvent.setLists.includes(s.id))
-                              .map((setlist) => (
-                                <option key={setlist.id} value={setlist.id}>{setlist.name}</option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => {
-                              if (!assignSetlistId) return;
-                              addSetlistToEvent(selectedEvent.id, assignSetlistId);
-                              setAssignSetlistId('');
-                            }}
-                            style={buttonStyle}
-                          >
-                            Assign
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {tab === 'tours' && (
-        <section style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 24, padding: 20, background: theme.surface, borderRadius: 20, border: `1px solid ${theme.border}` }}>
-            <h2 style={{ marginBottom: 12 }}>Tours</h2>
-            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input value={tourName} onChange={(e) => setTourName(e.target.value)} placeholder="New tour name" style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addTour} style={buttonStyle}>Add Tour</button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {tours.length === 0 && <li style={{ color: theme.muted }}>No tours yet.</li>}
-              {tours.map((tour) => (
-                <li key={tour.id} style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14, background: theme.surfaceAlt, borderRadius: 16, border: `1px solid ${theme.border}` }}>
-                  <span>{tour.name}</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setSelectedTourId(tour.id)} style={buttonStyle}>Manage</button>
-                    <button onClick={() => removeTour(tour.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>Delete</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {selectedTourId && (
-              <div style={{ marginTop: 28, padding: 20, borderRadius: 20, background: theme.surface, border: `1px solid ${theme.border}` }}>
-                <h3 style={{ marginBottom: 16 }}>Manage Tour</h3>
-                {(() => {
-                  const selectedTour = tours.find((t) => t.id === selectedTourId);
-                  if (!selectedTour) return <p>Selected tour not found.</p>;
-                  return (
-                    <>
-                      <div style={{ marginBottom: 18 }}>
-                        <strong>{selectedTour.name}</strong>
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ marginBottom: 12 }}>Events</h4>
-                        {selectedTour.events.length === 0 && <p style={{ color: theme.muted }}>No events in this tour.</p>}
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {selectedTour.events.map((eventId) => {
-                            const event = events.find(e => e.id === eventId);
-                            return event ? (
-                              <li key={event.id} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: theme.surfaceAlt, borderRadius: 14, border: `1px solid ${theme.border}` }}>
-                                <span>{event.name} ({event.date})</span>
-                                <button onClick={() => removeEventFromTour(event.id)} style={{ ...buttonStyle, background: theme.danger, color: '#fff' }}>
-                                  Remove
-                                </button>
-                              </li>
-                            ) : null;
-                          })}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 style={{ marginBottom: 12 }}>Add Event</h4>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <select value={assignEventId} onChange={(e) => setAssignEventId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-                            <option value="">Select event</option>
-                            {events
-                              .filter((e) => !selectedTour.events.includes(e.id))
-                              .map((event) => (
-                                <option key={event.id} value={event.id}>{event.name} ({event.date})</option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => {
-                              if (!assignEventId) return;
-                              addEventToTour(selectedTour.id, assignEventId);
-                              setAssignEventId('');
-                            }}
-                            style={buttonStyle}
-                          >
-                            Add
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
+    <div style={styles.container}>
+      <style>{`@media print { .no-print { display: none !important; } body { background: #fff !important; color: #000 !important; } main { padding: 0 !important; overflow: visible !important; } }`}</style>
+      {!isPrinting && renderSidebar()}
+      <main style={{ ...styles.main, background: isPrinting ? '#fff' : theme.background }}>
+        {isPrinting ? renderPrintView() : (
+          tab === 'printouts' ? renderPrintoutsTab() : (
+            isEditing || selectedId ? (isEditing ? renderForm() : renderDetails()) : renderList(getDataForTab())
+          )
+        )}
+      </main>
     </div>
   );
 };
