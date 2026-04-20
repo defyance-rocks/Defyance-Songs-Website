@@ -26,7 +26,6 @@ export interface Song {
   id: string;
   name: string;
   artist: string;
-  setlistId?: string | null;
   vocalists: string[]; // Musician IDs
   vocalRange?: 'High' | 'Low' | null;
   notes?: string | null;
@@ -36,9 +35,9 @@ export interface Song {
 export interface SetList {
   id: string;
   name: string;
-  eventId?: string | null;
-  position?: number;
   songs: string[]; // Ordered Song IDs
+  eventId?: string;
+  masterSetlistId?: string;
 }
 
 export interface EventSetListEntry {
@@ -54,7 +53,6 @@ export interface Event {
   date: string; // ISO date
   time: string; // HH:MM
   tourId?: string | null;
-  position?: number;
   setLists: EventSetListEntry[]; // Ordered entries
 }
 
@@ -68,4 +66,11 @@ export interface MasterSetList {
   id: string;
   name: string;
   setlists: string[]; // Ordered SetList IDs
+  eventId?: string;
+}
+
+export interface NavState {
+  tab: 'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours' | 'master-setlists' | 'printouts';
+  selectedId: string | null;
+  isEditing: boolean;
 }

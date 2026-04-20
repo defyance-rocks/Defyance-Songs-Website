@@ -26,7 +26,30 @@ module.exports = {
   },
   output: {
     path: path.resolve(__dirname, 'dist/renderer'),
-    filename: 'bundle.js',
+    filename: '[name].[contenthash].js',
+    clean: true,
+  },
+  optimization: {
+    splitChunks: {
+      chunks: 'all',
+      maxInitialRequests: Infinity,
+      minSize: 0,
+      cacheGroups: {
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name(module) {
+            const packageName = module.context.match(/[\\/]node_modules[\\/](.*?)([\\/]|$)/)[1];
+            return `npm.${packageName.replace('@', '')}`;
+          },
+        },
+      },
+    },
+    runtimeChunk: 'single',
+  },
+  performance: {
+    maxAssetSize: 500000,
+    maxEntrypointSize: 500000,
+    hints: 'warning',
   },
   plugins: [
     new webpack.DefinePlugin({
