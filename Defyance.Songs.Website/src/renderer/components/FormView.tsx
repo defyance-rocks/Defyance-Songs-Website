@@ -11,6 +11,7 @@ interface FormViewProps {
   editBio: string;
   editArtist: string;
   editVocalRange: string;
+  editKey: string;
   editNotes: string;
   editLink: string;
   editLocation: string;
@@ -26,6 +27,7 @@ interface FormViewProps {
   setEditBio: (val: string) => void;
   setEditArtist: (val: string) => void;
   setEditVocalRange: (val: string) => void;
+  setEditKey: (val: string) => void;
   setEditNotes: (val: string) => void;
   setEditLink: (val: string) => void;
   setEditLocation: (val: string) => void;
@@ -34,10 +36,10 @@ interface FormViewProps {
 }
 
 export const FormView: React.FC<FormViewProps> = ({
-  tab, selectedId, editName, editPhone, editEmail, editBio, editArtist, editVocalRange, 
+  tab, selectedId, editName, editPhone, editEmail, editBio, editArtist, editVocalRange, editKey,
   editNotes, editLink, editLocation, editDate, editTime, firstInputRef, styles, 
   onBack, onSave, setEditName, setEditPhone, setEditEmail, setEditBio, 
-  setEditArtist, setEditVocalRange, setEditNotes, setEditLink, 
+  setEditArtist, setEditVocalRange, setEditKey, setEditNotes, setEditLink, 
   setEditLocation, setEditDate, setEditTime
 }) => (
   <div style={{ maxWidth: 900 }}>
@@ -48,7 +50,25 @@ export const FormView: React.FC<FormViewProps> = ({
         <label style={styles.label}>Name</label>
         <input ref={firstInputRef as any} style={styles.input} value={editName} onChange={e => setEditName(e.target.value)} placeholder="Name" />
         {tab === 'musicians' && (<><label style={styles.label}>Phone</label><input style={styles.input} value={editPhone} onChange={e => setEditPhone(e.target.value)} /><label style={styles.label}>Email</label><input style={styles.input} value={editEmail} onChange={e => setEditEmail(e.target.value)} /><label style={styles.label}>Bio</label><textarea style={{ ...styles.input, minHeight: 100 }} value={editBio} onChange={e => setEditBio(e.target.value)} /></>)}
-        {tab === 'songs' && (<><label style={styles.label}>Artist</label><input style={styles.input} value={editArtist} onChange={e => setEditArtist(e.target.value)} /><label style={styles.label}>Vocal Range</label><select style={styles.input} value={editVocalRange} onChange={e => setEditVocalRange(e.target.value as any)}><option value="">None</option><option value="High">High</option><option value="Low">Low</option></select><label style={styles.label}>Notes</label><textarea style={{ ...styles.input, minHeight: 80 }} value={editNotes} onChange={e => setEditNotes(e.target.value)} /><label style={styles.label}>Link</label><input style={styles.input} value={editLink} onChange={(e) => setEditLink(e.target.value)} /></>)}
+        {tab === 'songs' && (<>
+          <label style={styles.label}>Artist</label>
+          <input style={styles.input} value={editArtist} onChange={e => setEditArtist(e.target.value)} />
+          <label style={styles.label}>Vocal Range</label>
+          <select style={styles.input} value={editVocalRange} onChange={e => setEditVocalRange(e.target.value as any)}>
+            <option value="">None</option>
+            <option value="High">High</option>
+            <option value="Low">Low</option>
+          </select>
+          <label style={styles.label}>Key</label>
+          <select style={styles.input} value={editKey} onChange={e => setEditKey(e.target.value)}>
+            <option value="">None</option>
+            {['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'].map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <label style={styles.label}>Notes</label>
+          <textarea style={{ ...styles.input, minHeight: 80 }} value={editNotes} onChange={e => setEditNotes(e.target.value)} />
+          <label style={styles.label}>Link</label>
+          <input style={styles.input} value={editLink} onChange={(e) => setEditLink(e.target.value)} />
+        </>)}
         {tab === 'events' && (<><label style={styles.label}>Location</label><input style={styles.input} value={editLocation} onChange={e => setEditLocation(e.target.value)} /><div style={{ display: 'flex', gap: 16 }}><div style={{ flex: 1 }}><label style={styles.label}>Date</label><input style={styles.input} type="date" value={editDate} onChange={e => setEditDate(e.target.value)} /></div><div style={{ flex: 1 }}><label style={styles.label}>Time</label><input style={styles.input} type="time" value={editTime} onChange={e => setEditTime(e.target.value)} /></div></div></>)}
         <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
           <button style={{ ...styles.button, background: theme.accent, color: '#fff', flex: 1 }} onClick={onSave}>Save</button>

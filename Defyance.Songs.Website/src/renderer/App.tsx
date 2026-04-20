@@ -21,7 +21,7 @@ const App: React.FC = () => {
 
   const { 
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists,
-    handleSave, handleDelete, handleAssign, handleUnassign, handleMove 
+    handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink 
   } = useAppData();
 
   const [isPrinting, setIsPrinting] = useState(false);
@@ -30,9 +30,12 @@ const App: React.FC = () => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
   const [songsSearch, setSongsSearch] = useState('');
+  const [songSortMode, setSongSortMode] = useState<'alpha' | 'artist' | 'unassigned' | 'vocal' | 'key'>('alpha');
+  const [songFilterId, setSongFilterId] = useState<string>('');
+  const [songFilterKey, setSongFilterKey] = useState<string>('');
 
   const [editFields, setEditFields] = useState({
-    name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '' as 'High' | 'Low' | '', notes: '', link: '', location: '', date: '', time: ''
+    name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '' as 'High' | 'Low' | '', songKey: '', notes: '', link: '', location: '', date: '', time: ''
   });
   const [assignId, setAssignId] = useState('');
   const firstInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
@@ -52,12 +55,12 @@ const App: React.FC = () => {
       if (item) {
         setEditFields({
           name: item.name, phone: item.phone || '', email: item.email || '', bio: item.bio || '',
-          artist: item.artist || '', vocalRange: item.vocalRange || '', notes: item.notes || '',
+          artist: item.artist || '', vocalRange: item.vocalRange || '', songKey: item.key || '', notes: item.notes || '',
           link: item.link || '', location: item.location || '', date: item.date || '', time: item.time || ''
         });
       }
     } else {
-      setEditFields({ name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', notes: '', link: '', location: '', date: '', time: '' });
+      setEditFields({ name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: '' });
     }
   };
 
@@ -73,7 +76,7 @@ const App: React.FC = () => {
         if (item) {
           setEditFields({
             name: item.name, phone: item.phone || '', email: item.email || '', bio: item.bio || '',
-            artist: item.artist || '', vocalRange: item.vocalRange || '', notes: item.notes || '',
+            artist: item.artist || '', vocalRange: item.vocalRange || '', songKey: item.key || '', notes: item.notes || '',
             link: item.link || '', location: item.location || '', date: item.date || '', time: item.time || ''
           });
         }
@@ -97,7 +100,7 @@ const App: React.FC = () => {
     const link = formatUrl(editFields.link.trim());
     const payload: any = { name: editFields.name };
     if (tab === 'musicians') { payload.phone = editFields.phone; payload.email = editFields.email; payload.bio = editFields.bio; }
-    if (tab === 'songs') { payload.artist = editFields.artist; payload.vocal_range = editFields.vocalRange || null; payload.notes = editFields.notes; payload.link = link; }
+    if (tab === 'songs') { payload.artist = editFields.artist; payload.vocal_range = editFields.vocalRange || null; payload.key = editFields.songKey || null; payload.notes = editFields.notes; payload.link = link; }
     if (tab === 'events') { payload.location = editFields.location; payload.date = editFields.date || null; payload.time = editFields.time || null; }
 
     await handleSave(tab, selectedId, isEditing, payload);
@@ -164,11 +167,12 @@ const App: React.FC = () => {
     if (tab === 'musicians') return item.instruments.map((id: string) => instruments.find(i => i.id === id)).filter(Boolean);
     if (tab === 'songs') return setlists.filter(sl => sl.songs.includes((item as Song).id));
     if (tab === 'setlists') {
-      const current = item.songs.map((id: string) => songs.find(s => s.id === id)).filter(Boolean);
+      const current = item.songs.map((s: {id: string, linked_to: string | null}) => songs.find(so => so.id === s.id)).filter(Boolean);
       const parent = [];
       if (item.eventId) { const ev = events.find(e => e.id === item.eventId); if (ev) parent.push({ ...ev, type: 'parent-event' }); }
       if (item.masterSetlistId) { const msl = masterSetlists.find(m => m.id === item.masterSetlistId); if (msl) parent.push({ ...msl, type: 'parent-master' }); }
-      return [...parent, ...current];
+      // Inject linked_to into the song objects for the DetailView to use
+      return [...parent, ...current.map((s: Song, i: number) => ({...s, linked_to: item.songs[i].linked_to}))];
     }
     if (tab === 'master-setlists') {
       const current = item.setlists.map((id: string) => setlists.find(s => s.id === id)).filter(Boolean);
@@ -218,14 +222,31 @@ const App: React.FC = () => {
             ) : (
               isEditing || selectedId ? (
                 isEditing ? (
-                  <FormView tab={tab} selectedId={selectedId} editName={editFields.name} editPhone={editFields.phone} editEmail={editFields.email} editBio={editFields.bio} editArtist={editFields.artist} editVocalRange={editFields.vocalRange} editNotes={editFields.notes} editLink={editFields.link} editLocation={editFields.location} editDate={editFields.date} editTime={editFields.time} firstInputRef={firstInputRef} styles={styles} onBack={handleBack} onSave={onSave} setEditName={(v) => setEditFields({...editFields, name: v})} setEditPhone={(v) => setEditFields({...editFields, phone: v})} setEditEmail={(v) => setEditFields({...editFields, email: v})} setEditBio={(v) => setEditFields({...editFields, bio: v})} setEditArtist={(v) => setEditFields({...editFields, artist: v})} setEditVocalRange={(v) => setEditFields({...editFields, vocalRange: v as any})} setEditNotes={(v) => setEditFields({...editFields, notes: v})} setEditLink={(v) => setEditFields({...editFields, link: v})} setEditLocation={(v) => setEditFields({...editFields, location: v})} setEditDate={(v) => setEditFields({...editFields, date: v})} setEditTime={(v) => setEditFields({...editFields, time: v})} />
+                  <FormView tab={tab} selectedId={selectedId} editName={editFields.name} editPhone={editFields.phone} editEmail={editFields.email} editBio={editFields.bio} editArtist={editFields.artist} editVocalRange={editFields.vocalRange} editKey={editFields.songKey} editNotes={editFields.notes} editLink={editFields.link} editLocation={editFields.location} editDate={editFields.date} editTime={editFields.time} firstInputRef={firstInputRef} styles={styles} onBack={handleBack} onSave={onSave} setEditName={(v) => setEditFields({...editFields, name: v})} setEditPhone={(v) => setEditFields({...editFields, phone: v})} setEditEmail={(v) => setEditFields({...editFields, email: v})} setEditBio={(v) => setEditFields({...editFields, bio: v})} setEditArtist={(v) => setEditFields({...editFields, artist: v})} setEditVocalRange={(v) => setEditFields({...editFields, vocalRange: v as any})} setEditKey={(v) => setEditFields({...editFields, songKey: v})} setEditNotes={(v) => setEditFields({...editFields, notes: v})} setEditLink={(v) => setEditFields({...editFields, link: v})} setEditLocation={(v) => setEditFields({...editFields, location: v})} setEditDate={(v) => setEditFields({...editFields, date: v})} setEditTime={(v) => setEditFields({...editFields, time: v})} />
                 ) : (
-                  <DetailView tab={tab} item={getItemById()} available={getAvailable().filter((a: any) => a.name.toLowerCase().includes(assignSearch.toLowerCase()) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(getItemById())} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => setIsEditing(true)} onPrint={(id) => { setActivePrintId(id || null); setIsPrinting(true); }} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} />
+                  <DetailView tab={tab} item={getItemById()} available={getAvailable().filter((a: any) => a.name.toLowerCase().includes(assignSearch.toLowerCase()) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(getItemById())} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => setIsEditing(true)} onPrint={(id) => { setActivePrintId(id || null); setIsPrinting(true); }} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} />
                 )
               ) : (
-                <ListView tab={tab} data={getData()} songsSearch={songsSearch} onSearchChange={setSongsSearch} onNavigate={navigateTo} onDelete={(id) => handleDelete(tab, id)} styles={styles} events={events} tours={tours} setlists={setlists} masterSetlists={masterSetlists} />
-              )
-            )
+                <ListView 
+                  tab={tab} 
+                  data={getData()} 
+                  songsSearch={songsSearch} 
+                  onSearchChange={setSongsSearch} 
+                  songSortMode={songSortMode}
+                  onSongSortChange={setSongSortMode}
+                  songFilterId={songFilterId}
+                  onSongFilterChange={setSongFilterId}
+                  songFilterKey={songFilterKey}
+                  onSongFilterKeyChange={setSongFilterKey}
+                  onNavigate={navigateTo} 
+                  onDelete={(id) => handleDelete(tab, id)} 
+                  styles={styles} 
+                  events={events} 
+                  tours={tours} 
+                  setlists={setlists} 
+                  masterSetlists={masterSetlists} 
+                />
+              )            )
           )}
         </Suspense>
       </main>

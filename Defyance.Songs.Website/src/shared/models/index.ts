@@ -1,4 +1,9 @@
-// Domain models for the band management app
+export interface SetListSong {
+  setlist_id: string;
+  song_id: string;
+  linked_to?: string | null;
+  position: number;
+}
 
 export interface Band {
   id: string;
@@ -28,8 +33,10 @@ export interface Song {
   artist: string;
   vocalists: string[]; // Musician IDs
   vocalRange?: 'High' | 'Low' | null;
+  key?: string | null;
   notes?: string | null;
   link?: string | null;
+  linked_to?: string | null;
 }
 
 export interface SetList {

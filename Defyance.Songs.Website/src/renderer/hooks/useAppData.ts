@@ -32,7 +32,7 @@ export const useAppData = () => {
         supabase.from('master_setlists').select('*'),
         supabase.from('band_musicians').select('*'),
         supabase.from('musician_instruments').select('*'),
-        supabase.from('setlist_songs').select('*').order('position'),
+        supabase.from('setlist_songs').select('*, linked_to').order('position'),
         supabase.from('event_setlists').select('*').order('position'),
         supabase.from('master_setlist_setlists').select('*').order('position')
       ]);
@@ -56,15 +56,20 @@ export const useAppData = () => {
       const songsData = (s || []).map(song => ({
         ...song,
         vocalRange: song.vocal_range,
+        key: song.key,
         vocalists: []
       }));
 
       const setlistsData = (sl || []).map(setlist => {
         const eventId = (esl || []).find(x => x.setlist_id === setlist.id)?.event_id;
         const masterSetlistId = (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id;
+        const songsWithLinks = (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ 
+            id: x.song_id, 
+            linked_to: x.linked_to 
+        }));
         return {
           ...setlist,
-          songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => x.song_id),
+          songs: songsWithLinks,
           eventId,
           masterSetlistId
         };
@@ -177,14 +182,39 @@ export const useAppData = () => {
   };
 
   const handleMove = async (tab: NavState['tab'], selectedId: string, list: any[], index: number, target: number) => {
-    const newList = [...list];
-    const [moved] = newList.splice(index, 1);
-    newList.splice(target, 0, moved);
+    let newList = [...list];
+    
+    // Helper to find full chain
+    const getChain = (idx: number, currentList: any[]) => {
+        const chain = [idx];
+        let curr = idx;
+        while(curr < currentList.length - 1 && currentList[curr].linked_to === currentList[curr+1].id) {
+            chain.push(curr + 1);
+            curr++;
+        }
+        // Also check upwards? If dragging B in A->B->C, moving B should move A->B->C
+        let up = idx;
+        while(up > 0 && currentList[up-1].linked_to === currentList[up].id) {
+            chain.unshift(up - 1);
+            up--;
+        }
+        return chain;
+    };
+
+    const chainIndices = getChain(index, newList);
+    const movingItems = chainIndices.map(i => newList[i]);
+    
+    // Remove items from old positions (remove in reverse to maintain indices)
+    chainIndices.sort((a,b) => b-a).forEach(i => newList.splice(i, 1));
+    
+    // Insert at new position
+    const insertIdx = target > index ? target - chainIndices.length + 1 : target;
+    newList.splice(insertIdx, 0, ...movingItems);
     
     if (tab === 'setlists') {
-      await Promise.all(newList.map((id, i) => supabase.from('setlist_songs').update({ position: i }).eq('setlist_id', selectedId).eq('song_id', id)));
+      await Promise.all(newList.map((item, i) => supabase.from('setlist_songs').update({ position: i }).eq('setlist_id', selectedId).eq('song_id', item.id)));
     } else if (tab === 'master-setlists') {
-      await Promise.all(newList.map((id, i) => supabase.from('master_setlist_setlists').update({ position: i }).eq('master_setlist_id', selectedId).eq('setlist_id', id)));
+      await Promise.all(newList.map((item, i) => supabase.from('master_setlist_setlists').update({ position: i }).eq('master_setlist_id', selectedId).eq('setlist_id', item.id)));
     } else if (tab === 'events') {
       await Promise.all(newList.map((e, i) => {
         const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
@@ -195,8 +225,22 @@ export const useAppData = () => {
     loadAll();
   };
 
+  const toggleLink = async (setlistId: string, songId: string, linkedTo: string | null) => {
+    console.log('toggleLink called:', { setlistId, songId, linkedTo });
+    
+    // Server update
+    const { data, error } = await supabase.from('setlist_songs').update({ linked_to: linkedTo }).eq('setlist_id', setlistId).eq('song_id', songId);
+    
+    if (error) {
+        console.error('Supabase update failed:', error);
+    } else {
+        console.log('Supabase update successful:', data);
+    }
+    loadAll(); // Fallback/Sync
+  };
+
   return {
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists,
-    loadAll, handleSave, handleDelete, handleAssign, handleUnassign, handleMove
+    loadAll, handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink
   };
 };

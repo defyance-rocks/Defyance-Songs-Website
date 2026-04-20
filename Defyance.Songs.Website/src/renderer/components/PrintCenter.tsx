@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Event, MasterSetList, SetList } from '../../shared/models';
 import { theme } from '../styles';
 import { formatDate, isPast, getSetlistLabel } from '../utils';
@@ -12,29 +12,50 @@ interface PrintCenterProps {
 }
 
 export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists, setlists, styles, onPrint }) => {
-  const sortedEvents = [...events]
-    .filter(e => !e.date || !isPast(e.date))
-    .sort((a, b) => {
-      if (!a.date && !b.date) return 0;
-      if (!a.date) return -1;
-      if (!b.date) return 1;
-      return a.date.localeCompare(b.date);
-    });
+  const [highVis, setHighVis] = useState(false);
+  const [filter, setFilter] = useState('');
+
+  const filteredEvents = events.filter(e => e.name.toLowerCase().includes(filter.toLowerCase()));
+  const filteredMasters = masterSetlists.filter(m => m.name.toLowerCase().includes(filter.toLowerCase()));
+  const filteredSetlists = setlists.filter(sl => sl.name.toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div style={styles.card}>
       <h2 style={styles.heading}>Print Center</h2>
-      <h3 style={styles.subHeading}>Upcoming & Planned Events</h3>
-      <ul style={styles.list}>{sortedEvents.map(e => (
-        <li key={e.id} style={styles.listItem}>
+      <div style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <input style={{ ...styles.input, marginBottom: 0 }} placeholder="Search playlists..." value={filter} onChange={e => setFilter(e.target.value)} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={highVis} onChange={e => setHighVis(e.target.checked)} />
+          High Visibility Mode
+        </label>
+      </div>
+
+      <h3 style={styles.subHeading}>Upcoming Events</h3>
+      <ul style={styles.list}>{filteredEvents.map(e => (
+        <li key={e.id} style={{ ...styles.listItem, marginBottom: 4 }}>
           <span>{e.name}{e.date ? ` (${formatDate(e.date)})` : ''}</span>
-          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('events', e.id)}>Print Setlists</button>
+          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('events', e.id + (highVis ? '?highVis=true' : ''))}>Print</button>
         </li>
       ))}</ul>
+
       <h3 style={styles.subHeading}>Master SetLists</h3>
-      <ul style={styles.list}>{masterSetlists.map(m => (<li key={m.id} style={styles.listItem}><span>{m.name}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('master-setlists', m.id)}>Print Floor View</button></li>))}</ul>
+      <ul style={styles.list}>{filteredMasters.map(m => {
+        const ev = events.find(e => e.id === m.eventId);
+        return (
+          <li key={m.id} style={{ ...styles.listItem, marginBottom: 4 }}>
+            <span>{ev ? `[${ev.name}] - ` : ''}{m.name}</span>
+            <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('master-setlists', m.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+          </li>
+        );
+      })}</ul>
+
       <h3 style={styles.subHeading}>Individual SetLists</h3>
-      <ul style={styles.list}>{setlists.map(sl => (<li key={sl.id} style={styles.listItem}><span>{getSetlistLabel(sl, events, masterSetlists)}</span><button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('setlists', sl.id)}>Print Set</button></li>))}</ul>
+      <ul style={styles.list}>{filteredSetlists.map(sl => (
+        <li key={sl.id} style={{ ...styles.listItem, marginBottom: 4 }}>
+          <span>{getSetlistLabel(sl, events, masterSetlists)}</span>
+          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('setlists', sl.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+        </li>
+      ))}</ul>
     </div>
   );
 };
