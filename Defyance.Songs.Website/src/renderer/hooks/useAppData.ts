@@ -14,6 +14,40 @@ export const useAppData = () => {
   const [tours, setTours] = useState<Tour[]>([]);
   const [masterSetlists, setMasterSetlists] = useState<MasterSetList[]>([]);
 
+  const getTableName = (tab: NavState['tab']) => tab === 'master-setlists' ? 'master_setlists' : tab;
+
+  const fetchEntity = useCallback(async (entityType: string) => {
+      try {
+          const tableName = entityType === 'masterSetlists' ? 'master_setlists' : entityType;
+          console.log(`[fetchEntity] Querying Supabase for ${tableName}`);
+          
+          // Basic entities update
+          if (['bands', 'musicians', 'instruments', 'songs', 'setlists', 'events', 'tours', 'master_setlists'].includes(tableName)) {
+              const { data, error } = await supabase.from(tableName).select('*');
+              if (error) throw error;
+              if (data) {
+                  switch(tableName) {
+                      case 'bands': setBands(data as any); break;
+                      case 'musicians': setMusicians(data as any); break;
+                      case 'instruments': setInstruments(data as any); break;
+                      case 'songs': setSongs(data.map(s => ({ ...s, vocalRange: s.vocal_range, key: s.key, vocalists: [] }))); break;
+                      case 'tours': setTours(data.map(t => ({ ...t, events: [] }))); break; // Events linked separately
+                      default: break;
+                  }
+              }
+          }
+
+          // Refetch everything for complex relational changes (junction tables)
+          // To be more efficient, we could target specific entities, but loadAll is safer for now.
+          if (tableName.includes('_') || ['setlists', 'events', 'master_setlists'].includes(tableName)) {
+              await loadAll();
+          }
+
+      } catch (err) {
+          console.error(`[fetchEntity] Failed to fetch ${entityType}:`, err);
+      }
+  }, []);
+
   const loadAll = useCallback(async () => {
     console.log('[Data] Syncing with Supabase...');
     try {
@@ -37,207 +71,152 @@ export const useAppData = () => {
         supabase.from('master_setlist_setlists').select('*').order('position')
       ]);
 
-      const bandsData = (b || []).map(band => ({
-        ...band,
-        musicians: (bm || []).filter(x => x.band_id === band.id).map(x => x.musician_id)
-      }));
-
-      const musiciansData = (m || []).map(musician => ({
-        ...musician,
-        instruments: (mi || []).filter(x => x.musician_id === musician.id).map(x => x.instrument_id),
-        bands: (bm || []).filter(x => x.musician_id === musician.id).map(x => x.band_id)
-      }));
-
-      const instrumentsData = (i || []).map(inst => ({
-        ...inst,
-        musicians: (mi || []).filter(x => x.instrument_id === inst.id).map(x => x.musician_id)
-      }));
-
-      const songsData = (s || []).map(song => ({
-        ...song,
-        vocalRange: song.vocal_range,
-        key: song.key,
-        vocalists: []
-      }));
-
-      const setlistsData = (sl || []).map(setlist => {
-        const eventId = (esl || []).find(x => x.setlist_id === setlist.id)?.event_id;
-        const masterSetlistId = (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id;
-        const songsWithLinks = (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ 
-            id: x.song_id, 
-            linked_to: x.linked_to 
-        }));
-        return {
-          ...setlist,
-          songs: songsWithLinks,
-          eventId,
-          masterSetlistId
-        };
-      });
-
-      const eventsData = (e || []).map(event => ({
-        ...event,
-        tourId: event.tour_id,
-        setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({
-          id: x.setlist_id || x.master_setlist_id,
-          type: x.setlist_id ? 'setlist' : 'master',
-          position: x.position
-        }))
-      }));
-
-      const toursData = (t || []).map(tour => ({
-        ...tour,
-        events: (e || []).filter(event => event.tour_id === tour.id).map(event => event.id)
-      }));
-
-      const masterSetlistsData = (ms || []).map(msl => ({
-        ...msl,
-        setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id),
-        eventId: (esl || []).find(x => x.master_setlist_id === msl.id)?.event_id
-      }));
-
-      setBands(bandsData as any);
-      setMusicians(musiciansData as any);
-      setInstruments(instrumentsData as any);
-      setSongs(songsData as any);
-      setSetlists(setlistsData as any);
-      setEvents(eventsData as any);
-      setTours(toursData as any);
-      setMasterSetlists(masterSetlistsData as any);
+      setBands((b || []).map(band => ({ ...band, musicians: (bm || []).filter(x => x.band_id === band.id).map(x => x.musician_id) })));
+      setMusicians((m || []).map(musician => ({ ...musician, instruments: (mi || []).filter(x => x.musician_id === musician.id).map(x => x.instrument_id), bands: (bm || []).filter(x => x.band_id === musician.id).map(x => x.band_id) })));
+      setInstruments((i || []).map(inst => ({ ...inst, musicians: (mi || []).filter(x => x.instrument_id === inst.id).map(x => x.musician_id) })));
+      setSongs((s || []).map(song => ({ ...song, vocalRange: song.vocal_range, key: song.key, vocalists: [] })));
+      setSetlists((sl || []).map(setlist => ({ ...setlist, songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.song_id, linked_to: x.linked_to })), eventId: (esl || []).find(x => x.setlist_id === setlist.id)?.event_id, masterSetlistId: (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id })));
+      setEvents((e || []).map(event => ({ ...event, tourId: event.tour_id, setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({ id: x.setlist_id || x.master_setlist_id, type: x.setlist_id ? 'setlist' : 'master', position: x.position })) })));
+      setTours((t || []).map(tour => ({ ...tour, events: (e || []).filter(event => event.tour_id === tour.id).map(event => event.id) })));
+      setMasterSetlists((ms || []).map(msl => ({ ...msl, setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id), eventId: (esl || []).find(x => x.master_setlist_id === msl.id)?.event_id })));
     } catch (err) {
       console.error('Failed to load data from Supabase', err);
     }
   }, []);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
-
   const handleSave = async (tab: NavState['tab'], selectedId: string | null, isEditing: boolean, payload: any) => {
-    const table = tab === 'master-setlists' ? 'master_setlists' : tab;
-    if (isEditing && selectedId) {
-      await supabase.from(table).update(payload).eq('id', selectedId);
-    } else {
-      await supabase.from(table).insert(payload);
-    }
-    loadAll();
+    const table = getTableName(tab);
+    const { error } = isEditing && selectedId ? await supabase.from(table).update(payload).eq('id', selectedId) : await supabase.from(table).insert(payload);
+    if (error) console.error('Save failed:', error);
   };
 
   const handleDelete = async (tab: NavState['tab'], id: string) => {
     if (!window.confirm('Are you sure?')) return;
-    const table = tab === 'master-setlists' ? 'master_setlists' : tab;
-    await supabase.from(table).delete().eq('id', id);
-    loadAll();
+    const { error } = await supabase.from(getTableName(tab)).delete().eq('id', id);
+    if (error) console.error('Delete failed:', error);
   };
 
   const handleAssign = async (tab: NavState['tab'], selectedId: string, assignId: string, item: any) => {
     const [type, id] = assignId.split(':');
-    if (tab === 'bands') await supabase.from('band_musicians').insert({ band_id: selectedId, musician_id: assignId });
-    else if (tab === 'musicians') await supabase.from('musician_instruments').insert({ musician_id: selectedId, instrument_id: assignId });
-    else if (tab === 'songs') await supabase.from('setlist_songs').insert({ setlist_id: assignId, song_id: selectedId, position: (setlists.find(s => s.id === assignId)?.songs.length || 0) });
+    let response;
+    if (tab === 'bands') response = await supabase.from('band_musicians').insert({ band_id: selectedId, musician_id: assignId });
+    else if (tab === 'musicians') response = await supabase.from('musician_instruments').insert({ musician_id: selectedId, instrument_id: assignId });
+    else if (tab === 'songs') response = await supabase.from('setlist_songs').insert({ setlist_id: assignId, song_id: selectedId, position: (setlists.find(s => s.id === assignId)?.songs.length || 0) });
     else if (tab === 'setlists') {
-      if (type === 'parent-event') await supabase.from('event_setlists').insert({ event_id: id, setlist_id: selectedId, position: (events.find(e => e.id === id)?.setLists.length || 0) });
-      else if (type === 'parent-master') await supabase.from('master_setlist_setlists').insert({ master_setlist_id: id, setlist_id: selectedId, position: (masterSetlists.find(m => m.id === id)?.setlists.length || 0) });
-      else if (type === 'song') await supabase.from('setlist_songs').insert({ setlist_id: selectedId, song_id: id, position: (item as SetList).songs.length });
-      else await supabase.from('setlist_songs').insert({ setlist_id: selectedId, song_id: assignId, position: (item as SetList).songs.length });
+      if (type === 'parent-event') response = await supabase.from('event_setlists').insert({ event_id: id, setlist_id: selectedId, position: (events.find(e => e.id === id)?.setLists.length || 0) });
+      else if (type === 'parent-master') response = await supabase.from('master_setlist_setlists').insert({ master_setlist_id: id, setlist_id: selectedId, position: (masterSetlists.find(m => m.id === id)?.setlists.length || 0) });
+      else if (type === 'song') response = await supabase.from('setlist_songs').insert({ setlist_id: selectedId, song_id: id, position: (item as SetList).songs.length });
+      else response = await supabase.from('setlist_songs').insert({ setlist_id: selectedId, song_id: assignId, position: (item as SetList).songs.length });
     }
     else if (tab === 'master-setlists') {
-      if (type === 'parent-event') await supabase.from('event_setlists').insert({ event_id: id, master_setlist_id: selectedId, position: (events.find(e => e.id === id)?.setLists.length || 0) });
-      else if (type === 'setlist') await supabase.from('master_setlist_setlists').insert({ master_setlist_id: selectedId, setlist_id: id, position: (item as MasterSetList).setlists.length });
-      else await supabase.from('master_setlist_setlists').insert({ master_setlist_id: selectedId, setlist_id: assignId, position: (item as MasterSetList).setlists.length });
+      if (type === 'parent-event') response = await supabase.from('event_setlists').insert({ event_id: id, master_setlist_id: selectedId, position: (events.find(e => e.id === id)?.setLists.length || 0) });
+      else if (type === 'setlist') response = await supabase.from('master_setlist_setlists').insert({ master_setlist_id: selectedId, setlist_id: id, position: (item as MasterSetList).setlists.length });
+      else response = await supabase.from('master_setlist_setlists').insert({ master_setlist_id: selectedId, setlist_id: assignId, position: (item as MasterSetList).setlists.length });
     }
     else if (tab === 'events') { 
-      if (type === 'parent-tour') await supabase.from('events').update({ tour_id: id }).eq('id', selectedId);
+      if (type === 'parent-tour') response = await supabase.from('events').update({ tour_id: id }).eq('id', selectedId);
       else {
         const payload: any = { event_id: selectedId, position: (item as Event).setLists.length };
         if (type === 'setlist') payload.setlist_id = id; else payload.master_setlist_id = id;
-        await supabase.from('event_setlists').insert(payload);
+        response = await supabase.from('event_setlists').insert(payload);
       }
     }
-    else if (tab === 'tours') await supabase.from('events').update({ tour_id: selectedId }).eq('id', assignId);
-    loadAll();
+    else if (tab === 'tours') response = await supabase.from('events').update({ tour_id: selectedId }).eq('id', assignId);
+    
+    if (response?.error) console.error('Assign failed:', response.error);
   };
 
   const handleUnassign = async (tab: NavState['tab'], selectedId: string, targetId: string, targetType?: string) => {
-    if (tab === 'bands') await supabase.from('band_musicians').delete().eq('band_id', selectedId).eq('musician_id', targetId);
-    else if (tab === 'musicians') await supabase.from('musician_instruments').delete().eq('musician_id', selectedId).eq('instrument_id', targetId);
-    else if (tab === 'songs') await supabase.from('setlist_songs').delete().eq('setlist_id', targetId).eq('song_id', selectedId);
+    let response;
+    if (tab === 'bands') response = await supabase.from('band_musicians').delete().eq('band_id', selectedId).eq('musician_id', targetId);
+    else if (tab === 'musicians') response = await supabase.from('musician_instruments').delete().eq('musician_id', selectedId).eq('instrument_id', targetId);
+    else if (tab === 'songs') response = await supabase.from('setlist_songs').delete().eq('setlist_id', targetId).eq('song_id', selectedId);
     else if (tab === 'setlists') {
-      if (targetType === 'parent-event') await supabase.from('event_setlists').delete().eq('setlist_id', selectedId);
-      else if (targetType === 'parent-master') await supabase.from('master_setlist_setlists').delete().eq('setlist_id', selectedId);
-      else await supabase.from('setlist_songs').delete().eq('setlist_id', selectedId).eq('song_id', targetId);
+      if (targetType === 'parent-event') response = await supabase.from('event_setlists').delete().eq('setlist_id', selectedId);
+      else if (targetType === 'parent-master') response = await supabase.from('master_setlist_setlists').delete().eq('setlist_id', selectedId);
+      else response = await supabase.from('setlist_songs').delete().eq('setlist_id', selectedId).eq('song_id', targetId);
     }
     else if (tab === 'master-setlists') {
-      if (targetType === 'parent-event') await supabase.from('event_setlists').delete().eq('master_setlist_id', selectedId);
-      else await supabase.from('master_setlist_setlists').delete().eq('master_setlist_id', selectedId).eq('setlist_id', targetId);
+      if (targetType === 'parent-event') response = await supabase.from('event_setlists').delete().eq('master_setlist_id', selectedId);
+      else response = await supabase.from('master_setlist_setlists').delete().eq('master_setlist_id', selectedId).eq('setlist_id', targetId);
     }
     else if (tab === 'events') {
-      if (targetType === 'parent-tour') await supabase.from('events').update({ tour_id: null }).eq('id', selectedId);
+      if (targetType === 'parent-tour') response = await supabase.from('events').update({ tour_id: null }).eq('id', selectedId);
       else {
         const query = supabase.from('event_setlists').delete().eq('event_id', selectedId);
         if (targetType === 'setlist') query.eq('setlist_id', targetId); else query.eq('master_setlist_id', targetId);
-        await query;
+        response = await query;
       }
     }
-    else if (tab === 'tours') await supabase.from('events').update({ tour_id: null }).eq('id', targetId);
-    loadAll();
+    else if (tab === 'tours') response = await supabase.from('events').update({ tour_id: null }).eq('id', targetId);
+
+    if (response?.error) console.error('Unassign failed:', response.error);
   };
 
   const handleMove = async (tab: NavState['tab'], selectedId: string, list: any[], index: number, target: number) => {
-    let newList = [...list];
-    
-    // Helper to find full chain
+    const newList = [...list];
     const getChain = (idx: number, currentList: any[]) => {
-        const chain = [idx];
-        let curr = idx;
-        while(curr < currentList.length - 1 && currentList[curr].linked_to === currentList[curr+1].id) {
-            chain.push(curr + 1);
-            curr++;
-        }
-        // Also check upwards? If dragging B in A->B->C, moving B should move A->B->C
-        let up = idx;
-        while(up > 0 && currentList[up-1].linked_to === currentList[up].id) {
-            chain.unshift(up - 1);
-            up--;
-        }
-        return chain;
+      const chain = [idx];
+      let curr = idx;
+      while(curr < currentList.length - 1 && currentList[curr].linked_to === currentList[curr+1].id) {
+          chain.push(curr + 1);
+          curr++;
+      }
+      let up = idx;
+      while(up > 0 && currentList[up-1].linked_to === currentList[up].id) {
+          chain.unshift(up - 1);
+          up--;
+      }
+      return chain;
     };
-
     const chainIndices = getChain(index, newList);
     const movingItems = chainIndices.map(i => newList[i]);
-    
-    // Remove items from old positions (remove in reverse to maintain indices)
     chainIndices.sort((a,b) => b-a).forEach(i => newList.splice(i, 1));
+    newList.splice(target > index ? target - chainIndices.length + 1 : target, 0, ...movingItems);
     
-    // Insert at new position
-    const insertIdx = target > index ? target - chainIndices.length + 1 : target;
-    newList.splice(insertIdx, 0, ...movingItems);
-    
-    if (tab === 'setlists') {
-      await Promise.all(newList.map((item, i) => supabase.from('setlist_songs').update({ position: i }).eq('setlist_id', selectedId).eq('song_id', item.id)));
-    } else if (tab === 'master-setlists') {
-      await Promise.all(newList.map((item, i) => supabase.from('master_setlist_setlists').update({ position: i }).eq('master_setlist_id', selectedId).eq('setlist_id', item.id)));
-    } else if (tab === 'events') {
-      await Promise.all(newList.map((e, i) => {
+    if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
+    else if (tab === 'master-setlists') await supabase.rpc('reorder_master_setlist_setlists', { p_master_setlist_id: selectedId, p_setlist_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
+    else if (tab === 'events') await Promise.all(newList.map((e, i) => {
         const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
-        if (e.type === 'setlist') query.eq('setlist_id', e.id); else query.eq('master_setlist_id', e.id);
-        return query;
+        return e.type === 'setlist' ? query.eq('setlist_id', e.id) : query.eq('master_setlist_id', e.id);
       }));
-    }
-    loadAll();
   };
 
   const toggleLink = async (setlistId: string, songId: string, linkedTo: string | null) => {
-    console.log('toggleLink called:', { setlistId, songId, linkedTo });
-    
-    // Server update
-    const { data, error } = await supabase.from('setlist_songs').update({ linked_to: linkedTo }).eq('setlist_id', setlistId).eq('song_id', songId);
-    
-    if (error) {
-        console.error('Supabase update failed:', error);
-    } else {
-        console.log('Supabase update successful:', data);
-    }
-    loadAll(); // Fallback/Sync
+    await supabase.from('setlist_songs').update({ linked_to: linkedTo }).eq('setlist_id', setlistId).eq('song_id', songId);
   };
+
+  // Realtime subscription
+  useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout>;
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          console.log('[Realtime] Change received:', payload);
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            loadAll();
+          }, 300);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [loadAll]);
+
+  // Initial fetch
+  useEffect(() => { 
+    // We'll let the component control when to loadAll or just check session here if needed
+    // For simplicity, we'll keep it as is, Supabase will just return 401/empty if RLS is on.
+    loadAll(); 
+  }, [loadAll]);
 
   return {
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists,

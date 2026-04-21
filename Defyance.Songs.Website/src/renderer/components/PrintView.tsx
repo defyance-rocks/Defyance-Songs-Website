@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from 'react';
 import { Song, SetList, MasterSetList, Event } from '../../shared/models';
 import { theme } from '../styles';

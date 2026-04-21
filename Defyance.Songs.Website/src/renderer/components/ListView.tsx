@@ -21,6 +21,7 @@ interface ListViewProps {
   tours: Tour[];
   setlists: SetList[];
   masterSetlists: MasterSetList[];
+  readOnly?: boolean;
 }
 
 export const ListView: React.FC<ListViewProps> = ({ 
@@ -29,7 +30,8 @@ export const ListView: React.FC<ListViewProps> = ({
   songFilterId = '', onSongFilterChange,
   songFilterKey = '', onSongFilterKeyChange,
   onNavigate, onDelete, styles, 
-  events, tours, setlists, masterSetlists 
+  events, tours, setlists, masterSetlists,
+  readOnly = false
 }) => {
   let filtered = [...data];
   let orderedSongs: string[] = [];
@@ -45,14 +47,14 @@ export const ListView: React.FC<ListViewProps> = ({
 
     if (songFilterId) {
       if (songFilterId === 'unassigned') {
-        filtered = filtered.filter(s => !setlists.some(sl => sl.songs.includes(s.id)));
+        filtered = filtered.filter(s => !setlists.some(sl => sl.songs.some(sls => sls.id === s.id)));
       } else {
         const [type, id] = songFilterId.split(':');
         if (type === 'setlist') {
           const sl = setlists.find(s => s.id === id);
           if (sl) {
-            orderedSongs = sl.songs;
-            filtered = filtered.filter(s => sl.songs.includes(s.id));
+            orderedSongs = sl.songs.map(s => s.id);
+            filtered = filtered.filter(s => sl.songs.some(sls => sls.id === s.id));
           }
         } else if (type === 'master') {
           const msl = masterSetlists.find(m => m.id === id);
@@ -60,8 +62,8 @@ export const ListView: React.FC<ListViewProps> = ({
             const allSongsInOrder: string[] = [];
             msl.setlists.forEach(slId => {
               const sl = setlists.find(s => s.id === slId);
-              if (sl) sl.songs.forEach(sid => {
-                  if (!allSongsInOrder.includes(sid)) allSongsInOrder.push(sid);
+              if (sl) sl.songs.forEach(s => {
+                  if (!allSongsInOrder.includes(s.id)) allSongsInOrder.push(s.id);
               });
             });
             orderedSongs = allSongsInOrder;
@@ -94,8 +96,8 @@ export const ListView: React.FC<ListViewProps> = ({
           return (a.key || '').localeCompare(b.key || '');
       }
       if (songSortMode === 'unassigned') {
-        const assignedA = setlists.some(sl => sl.songs.includes(a.id));
-        const assignedB = setlists.some(sl => sl.songs.includes(b.id));
+        const assignedA = setlists.some(sl => sl.songs.some(s => s.id === a.id));
+        const assignedB = setlists.some(sl => sl.songs.some(s => s.id === b.id));
         if (assignedA !== assignedB) return assignedA ? 1 : -1;
         return a.name.localeCompare(b.name);
       }
@@ -152,7 +154,7 @@ export const ListView: React.FC<ListViewProps> = ({
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: tab === 'songs' ? 12 : 0 }}>
           <h2 style={styles.heading}>{tab.toUpperCase()}</h2>
-          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onNavigate(tab, null, true)}>+ NEW</button>
+          {!readOnly && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onNavigate(tab, null, true)}>+ NEW</button>}
         </div>
         
         {tab === 'songs' && (
@@ -234,8 +236,8 @@ export const ListView: React.FC<ListViewProps> = ({
               {subLabel && <span style={{ fontSize: 12, color: theme.muted }}>{subLabel}</span>}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>
-              <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>
+              {!readOnly && <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>}
+              {!readOnly && <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>}
             </div>
           </li>
         );

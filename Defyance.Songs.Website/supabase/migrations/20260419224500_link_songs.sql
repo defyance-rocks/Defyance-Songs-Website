@@ -1,0 +1,1 @@
+ALTER TABLE setlist_songs ADD COLUMN linked_to UUID REFERENCES songs(id) ON DELETE SET NULL;

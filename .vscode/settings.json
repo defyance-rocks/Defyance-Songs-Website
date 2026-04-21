@@ -7,7 +7,6 @@
         "npm run serve": true,
         "npm start": true,
         "Set-Content": true,
-        "ForEach-Object": true,
-        "npx electron": true
+        "ForEach-Object": true
     }
 }

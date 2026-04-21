@@ -1,9 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback, Suspense, lazy } from 'react';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 import { NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList } from '../shared/models';
 import { theme, getStyles } from './styles';
 import { formatUrl, getSetlistLabel } from './utils';
 import { useAppData } from './hooks/useAppData';
 import { Sidebar } from './components/Sidebar';
+import { Login } from './components/Login';
 
 const ListView = lazy(() => import('./components/ListView').then(m => ({ default: m.ListView })));
 const DetailView = lazy(() => import('./components/DetailView').then(m => ({ default: m.DetailView })));
@@ -12,6 +15,8 @@ const PrintView = lazy(() => import('./components/PrintView').then(m => ({ defau
 const PrintCenter = lazy(() => import('./components/PrintCenter').then(m => ({ default: m.PrintCenter })));
 
 const App: React.FC = () => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
   const [tab, setTab] = useState<NavState['tab']>('bands');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -23,6 +28,19 @@ const App: React.FC = () => {
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists,
     handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink 
   } = useAppData();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [activePrintId, setActivePrintId] = useState<string | null>(null);
@@ -90,6 +108,12 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleEsc);
   }, [handleBack]);
 
+  useEffect(() => {
+    if (session && tab === 'login') {
+      handleBack();
+    }
+  }, [session, tab, handleBack]);
+
   const getItemById = () => {
     if (!selectedId) return null;
     return [...bands, ...musicians, ...songs, ...instruments, ...setlists, ...events, ...tours, ...masterSetlists].find(x => x.id === selectedId) || null;
@@ -119,23 +143,50 @@ const App: React.FC = () => {
   };
 
   const onMove = async (index: number, direction: 'up' | 'down', targetIndex?: number) => {
-    const item = getItemById() as any; if (!item) return;
-    const list = [...(item.songs || item.setlists || item.setLists || item.events)];
-    const target = targetIndex !== undefined ? targetIndex : (direction === 'up' ? index - 1 : index + 1);
-    if (target < 0 || target >= list.length || target === index) return;
-    await handleMove(tab, selectedId!, list, index, target);
+    if (!selectedId) return;
+    const item = getItemById();
+    if (!item) return;
+    const rels = getCurrentRels(item);
+    const children = rels.filter((r: any) => !r.type?.startsWith('parent-'));
+    
+    const getChain = (idx: number, currentList: any[]) => {
+      const chain = [idx];
+      let curr = idx;
+      while(curr < currentList.length - 1 && currentList[curr].linked_to === currentList[curr+1].id) {
+          chain.push(curr + 1);
+          curr++;
+      }
+      let up = idx;
+      while(up > 0 && currentList[up-1].linked_to === currentList[up].id) {
+          chain.unshift(up - 1);
+          up--;
+      }
+      return { indices: chain, start: chain[0], end: chain[chain.length - 1] };
+    };
+
+    const chain = getChain(index, children);
+    let target: number;
+    if (targetIndex !== undefined) {
+      target = targetIndex;
+    } else {
+      target = direction === 'up' ? chain.start - 1 : chain.end + 1;
+    }
+
+    if (target < 0 || target >= children.length) return;
+    await handleMove(tab, selectedId, children, index, target);
   };
 
   const styles = getStyles(isMobile, isSidebarOpen);
+
 
   const getAvailable = () => {
     const item = getItemById(); if (!item) return [];
     if (tab === 'bands') return musicians.filter(m => !(item as Band).musicians.includes(m.id));
     if (tab === 'musicians') return instruments.filter(i => !(item as Musician).instruments.includes(i.id));
-    if (tab === 'songs') return setlists.filter(sl => !sl.songs.includes((item as Song).id));
+    if (tab === 'songs') return setlists.filter(sl => !sl.songs.some(s => s.id === (item as Song).id));
     if (tab === 'setlists') {
       const currentSongs = (item as SetList).songs;
-      const songOptions = songs.filter(s => !currentSongs.includes(s.id)).map(s => ({ ...s, type: 'song' }));
+      const songOptions = songs.filter(s => !currentSongs.some(cs => cs.id === s.id)).map(s => ({ ...s, type: 'song' }));
       const parentOptions = [];
       if (!(item as SetList).eventId && !(item as SetList).masterSetlistId) {
         parentOptions.push(...events.map(e => ({ ...e, type: 'parent-event' })));
@@ -162,22 +213,22 @@ const App: React.FC = () => {
     return [];
   };
 
-  const getCurrentRels = (item: any) => {
-    if (tab === 'bands') return item.musicians.map((id: string) => musicians.find(m => m.id === id)).filter(Boolean);
-    if (tab === 'musicians') return item.instruments.map((id: string) => instruments.find(i => i.id === id)).filter(Boolean);
-    if (tab === 'songs') return setlists.filter(sl => sl.songs.includes((item as Song).id));
+  const getCurrentRels = (item: Band | Musician | Song | SetList | Event | Tour | MasterSetList) => {
+    if (tab === 'bands') return (item as Band).musicians.map((id: string) => musicians.find(m => m.id === id)).filter(Boolean);
+    if (tab === 'musicians') return (item as Musician).instruments.map((id: string) => instruments.find(i => i.id === id)).filter(Boolean);
+    if (tab === 'songs') return setlists.filter(sl => sl.songs.some(s => s.id === (item as Song).id));
     if (tab === 'setlists') {
-      const current = item.songs.map((s: {id: string, linked_to: string | null}) => songs.find(so => so.id === s.id)).filter(Boolean);
+      const current = (item as SetList).songs.map((s: {id: string, linked_to?: string | null}) => songs.find(so => so.id === s.id)).filter(Boolean);
       const parent = [];
-      if (item.eventId) { const ev = events.find(e => e.id === item.eventId); if (ev) parent.push({ ...ev, type: 'parent-event' }); }
-      if (item.masterSetlistId) { const msl = masterSetlists.find(m => m.id === item.masterSetlistId); if (msl) parent.push({ ...msl, type: 'parent-master' }); }
+      if ((item as SetList).eventId) { const ev = events.find(e => e.id === (item as SetList).eventId); if (ev) parent.push({ ...ev, type: 'parent-event' }); }
+      if ((item as SetList).masterSetlistId) { const msl = masterSetlists.find(m => m.id === (item as SetList).masterSetlistId); if (msl) parent.push({ ...msl, type: 'parent-master' }); }
       // Inject linked_to into the song objects for the DetailView to use
-      return [...parent, ...current.map((s: Song, i: number) => ({...s, linked_to: item.songs[i].linked_to}))];
+      return [...parent, ...current.map((s, i) => s ? ({...s, linked_to: (item as SetList).songs[i].linked_to}) : null).filter(Boolean)];
     }
     if (tab === 'master-setlists') {
-      const current = item.setlists.map((id: string) => setlists.find(s => s.id === id)).filter(Boolean);
+      const current = (item as MasterSetList).setlists.map((id: string) => setlists.find(s => s.id === id)).filter(Boolean);
       const parent = [];
-      if (item.eventId) { const ev = events.find(e => e.id === item.eventId); if (ev) parent.push({ ...ev, type: 'parent-event' }); }
+      if ((item as MasterSetList).eventId) { const ev = events.find(e => e.id === (item as MasterSetList).eventId); if (ev) parent.push({ ...ev, type: 'parent-event' }); }
       return [...parent, ...current];
     }
     if (tab === 'events') {
@@ -186,10 +237,10 @@ const App: React.FC = () => {
         return x ? { ...x, type: e.type } : null;
       }).filter(Boolean);
       const parent = [];
-      if (item.tourId) { const t = tours.find(x => x.id === item.tourId); if (t) parent.push({ ...t, type: 'parent-tour' }); }
+      if ((item as Event).tourId) { const t = tours.find(x => x.id === (item as Event).tourId); if (t) parent.push({ ...t, type: 'parent-tour' }); }
       return [...parent, ...current];
     }
-    if (tab === 'tours') return item.events.map((id: string) => events.find(e => e.id === id)).filter(Boolean);
+    if (tab === 'tours') return (item as Tour).events.map((id: string) => events.find(e => e.id === id)).filter(Boolean);
     return [];
   };
 
@@ -199,6 +250,10 @@ const App: React.FC = () => {
     if (tab === 'master-setlists') return masterSetlists; if (tab === 'events') return events;
     if (tab === 'tours') return tours; return [];
   };
+
+  if (loadingSession) return <div style={{ background: theme.background, color: theme.text, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading...</div>;
+
+  const isReadOnly = !session;
 
   return (
     <div style={styles.container}>
@@ -211,21 +266,33 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      {!isPrinting && <Sidebar tab={tab} isMobile={isMobile} isSidebarOpen={isSidebarOpen} styles={styles} onTabChange={(t) => { setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); }} />}
+      {!isPrinting && <Sidebar tab={tab} isMobile={isMobile} isSidebarOpen={isSidebarOpen} styles={styles} session={session} onTabChange={(t) => { 
+        if (t === 'login') {
+          setNavStack(prev => [...prev, { tab, selectedId, isEditing }]);
+        } else {
+          setNavStack([]); 
+        }
+        setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); 
+      }} />}
       <main style={{ ...styles.main, background: isPrinting ? '#fff' : theme.background }}>
         <Suspense fallback={<div style={{ color: theme.muted, padding: 20 }}>Loading...</div>}>
-          {isPrinting ? (
+          {tab === 'login' ? (
+            <Login styles={styles} onGuest={handleBack} />
+          ) : isPrinting ? (
             <PrintView songs={songs} setlists={setlists} masterSetlists={masterSetlists} events={events} tab={tab} item={getItemById()} activePrintId={activePrintId} styles={styles} onClose={() => { setIsPrinting(false); setActivePrintId(null); }} />
           ) : (
             tab === 'printouts' ? (
               <PrintCenter events={events} masterSetlists={masterSetlists} setlists={setlists} styles={styles} onPrint={(t, id) => { setTab(t); setSelectedId(id); setIsPrinting(true); }} />
             ) : (
               isEditing || selectedId ? (
-                isEditing ? (
+                isEditing && !isReadOnly ? (
                   <FormView tab={tab} selectedId={selectedId} editName={editFields.name} editPhone={editFields.phone} editEmail={editFields.email} editBio={editFields.bio} editArtist={editFields.artist} editVocalRange={editFields.vocalRange} editKey={editFields.songKey} editNotes={editFields.notes} editLink={editFields.link} editLocation={editFields.location} editDate={editFields.date} editTime={editFields.time} firstInputRef={firstInputRef} styles={styles} onBack={handleBack} onSave={onSave} setEditName={(v) => setEditFields({...editFields, name: v})} setEditPhone={(v) => setEditFields({...editFields, phone: v})} setEditEmail={(v) => setEditFields({...editFields, email: v})} setEditBio={(v) => setEditFields({...editFields, bio: v})} setEditArtist={(v) => setEditFields({...editFields, artist: v})} setEditVocalRange={(v) => setEditFields({...editFields, vocalRange: v as any})} setEditKey={(v) => setEditFields({...editFields, songKey: v})} setEditNotes={(v) => setEditFields({...editFields, notes: v})} setEditLink={(v) => setEditFields({...editFields, link: v})} setEditLocation={(v) => setEditFields({...editFields, location: v})} setEditDate={(v) => setEditFields({...editFields, date: v})} setEditTime={(v) => setEditFields({...editFields, time: v})} />
-                ) : (
-                  <DetailView tab={tab} item={getItemById()} available={getAvailable().filter((a: any) => a.name.toLowerCase().includes(assignSearch.toLowerCase()) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(getItemById())} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => setIsEditing(true)} onPrint={(id) => { setActivePrintId(id || null); setIsPrinting(true); }} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} />
-                )
+                ) : (() => {
+                  const item = getItemById();
+                  return item ? (
+                    <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item)} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => setIsEditing(true)} onPrint={(id) => { setActivePrintId(id || null); setIsPrinting(true); }} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} readOnly={isReadOnly} />
+                  ) : <div style={{ color: theme.muted, padding: 20 }}>Item not found.</div>;
+                })()
               ) : (
                 <ListView 
                   tab={tab} 
@@ -245,6 +312,7 @@ const App: React.FC = () => {
                   tours={tours} 
                   setlists={setlists} 
                   masterSetlists={masterSetlists} 
+                  readOnly={isReadOnly}
                 />
               )            )
           )}

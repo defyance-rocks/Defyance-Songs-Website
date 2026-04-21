@@ -42,7 +42,7 @@ export interface Song {
 export interface SetList {
   id: string;
   name: string;
-  songs: string[]; // Ordered Song IDs
+  songs: { id: string; linked_to?: string | null }[]; // Ordered Song IDs with linking info
   eventId?: string;
   masterSetlistId?: string;
 }
@@ -77,7 +77,7 @@ export interface MasterSetList {
 }
 
 export interface NavState {
-  tab: 'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours' | 'master-setlists' | 'printouts';
+  tab: 'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours' | 'master-setlists' | 'printouts' | 'login';
   selectedId: string | null;
   isEditing: boolean;
 }
