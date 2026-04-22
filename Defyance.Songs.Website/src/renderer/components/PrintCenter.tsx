@@ -31,31 +31,38 @@ export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists
       </div>
 
       <h3 style={styles.subHeading}>Upcoming Events</h3>
-      <ul style={styles.list}>{filteredEvents.map(e => (
-        <li key={e.id} style={{ ...styles.listItem, marginBottom: 4 }}>
-          <span>{e.name}{e.date ? ` (${formatDate(e.date)})` : ''}</span>
-          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('events', e.id + (highVis ? '?highVis=true' : ''))}>Print</button>
-        </li>
-      ))}</ul>
+      <ul style={styles.list}>{filteredEvents.map(e => {
+        const hasContent = e.setLists.length > 0;
+        return (
+          <li key={e.id} style={{ ...styles.listItem, marginBottom: 4 }}>
+            <span>{e.name}{e.date ? ` (${formatDate(e.date)})` : ''}</span>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('events', e.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+          </li>
+        );
+      })}</ul>
 
       <h3 style={styles.subHeading}>Master SetLists</h3>
       <ul style={styles.list}>{filteredMasters.map(m => {
         const ev = events.find(e => e.id === m.eventId);
+        const hasContent = m.setlists.length > 0;
         return (
           <li key={m.id} style={{ ...styles.listItem, marginBottom: 4 }}>
             <span>{ev ? `[${ev.name}] - ` : ''}{m.name}</span>
-            <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('master-setlists', m.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('master-setlists', m.id + (highVis ? '?highVis=true' : ''))}>Print</button>
           </li>
         );
       })}</ul>
 
       <h3 style={styles.subHeading}>Individual SetLists</h3>
-      <ul style={styles.list}>{filteredSetlists.map(sl => (
-        <li key={sl.id} style={{ ...styles.listItem, marginBottom: 4 }}>
-          <span>{getSetlistLabel(sl, events, masterSetlists)}</span>
-          <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onPrint('setlists', sl.id + (highVis ? '?highVis=true' : ''))}>Print</button>
-        </li>
-      ))}</ul>
+      <ul style={styles.list}>{filteredSetlists.map(sl => {
+        const hasContent = sl.songs.length > 0;
+        return (
+          <li key={sl.id} style={{ ...styles.listItem, marginBottom: 4 }}>
+            <span>{getSetlistLabel(sl, events, masterSetlists)}</span>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('setlists', sl.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+          </li>
+        );
+      })}</ul>
     </div>
   );
 };

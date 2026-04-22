@@ -155,53 +155,94 @@ export const useAppData = () => {
 
   const handleMove = async (tab: NavState['tab'], selectedId: string, list: any[], index: number, target: number) => {
     const newList = [...list];
-    const getChain = (idx: number, currentList: any[]) => {
-      const chain = [idx];
-      let curr = idx;
-      while(curr < currentList.length - 1 && currentList[curr].linked_to === currentList[curr+1].id) {
-          chain.push(curr + 1);
-          curr++;
-      }
-      let up = idx;
-      while(up > 0 && currentList[up-1].linked_to === currentList[up].id) {
-          chain.unshift(up - 1);
-          up--;
-      }
-      return chain;
-    };
-    const chainIndices = getChain(index, newList);
-    const movingItems = chainIndices.map(i => newList[i]);
-    chainIndices.sort((a,b) => b-a).forEach(i => newList.splice(i, 1));
-    newList.splice(target > index ? target - chainIndices.length + 1 : target, 0, ...movingItems);
     
-    if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
-    else if (tab === 'master-setlists') await supabase.rpc('reorder_master_setlist_setlists', { p_master_setlist_id: selectedId, p_setlist_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
-    else if (tab === 'events') await Promise.all(newList.map((e, i) => {
-        const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
-        return e.type === 'setlist' ? query.eq('setlist_id', e.id) : query.eq('master_setlist_id', e.id);
-      }));
+    // Identify chain
+    const getChainRange = (idx: number, currentList: any[]) => {
+      let start = idx;
+      while(start > 0 && currentList[start-1].linked_to === currentList[start].id) start--;
+      let end = idx;
+      while(end < currentList.length - 1 && currentList[end].linked_to === currentList[end+1].id) end++;
+      return { start, end };
+    };
+
+    const range = getChainRange(index, newList);
+    const chain = newList.splice(range.start, range.end - range.start + 1);
+    const insertAt = target > index ? target - chain.length + 1 : target;
+    newList.splice(insertAt, 0, ...chain);
+    
+    // Optimistic UI
+    if (tab === 'setlists') setSetlists(prev => prev.map(sl => sl.id === selectedId ? {...sl, songs: newList} : sl));
+    else if (tab === 'master-setlists') setMasterSetlists(prev => prev.map(ms => ms.id === selectedId ? {...ms, setlists: newList.map(s => s.id)} : ms));
+    else if (tab === 'events') setEvents(prev => prev.map(e => e.id === selectedId ? {...e, setLists: newList} : e));
+
+    try {
+        if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
+        else if (tab === 'master-setlists') await supabase.rpc('reorder_master_setlist_setlists', { p_master_setlist_id: selectedId, p_setlist_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
+        else if (tab === 'events') await Promise.all(newList.map((e, i) => {
+            const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
+            return e.type === 'setlist' ? query.eq('setlist_id', e.id) : query.eq('master_setlist_id', e.id);
+        }));
+    } catch (err) {
+        console.error('Optimistic reorder failed, rolling back:', err);
+        loadAll();
+    }
   };
 
   const toggleLink = async (setlistId: string, songId: string, linkedTo: string | null) => {
     await supabase.from('setlist_songs').update({ linked_to: linkedTo }).eq('setlist_id', setlistId).eq('song_id', songId);
   };
 
+  const syncSetlists = useCallback(async () => {
+    const [ { data: sls }, { data: esl }, { data: msls } ] = await Promise.all([
+      supabase.from('setlist_songs').select('*, linked_to').order('position'),
+      supabase.from('event_setlists').select('*').order('position'),
+      supabase.from('master_setlist_setlists').select('*').order('position')
+    ]);
+    
+    setSetlists(prev => prev.map(sl => ({ 
+        ...sl, 
+        songs: (sls || []).filter((x: any) => x.setlist_id === sl.id).map((x: any) => ({ id: x.song_id, linked_to: x.linked_to })), 
+        eventId: (esl || []).find((x: any) => x.setlist_id === sl.id)?.event_id, 
+        masterSetlistId: (msls || []).find((x: any) => x.setlist_id === sl.id)?.master_setlist_id 
+    })));
+  }, []);
+
+  const syncBandData = useCallback(async () => {
+    const [ { data: bm }, { data: mi } ] = await Promise.all([
+        supabase.from('band_musicians').select('*'),
+        supabase.from('musician_instruments').select('*')
+    ]);
+    setBands(prev => prev.map(b => ({ ...b, musicians: (bm || []).filter((x: any) => x.band_id === b.id).map((x: any) => x.musician_id) })));
+    setMusicians(prev => prev.map(m => ({ ...m, instruments: (mi || []).filter((x: any) => x.musician_id === m.id).map((x: any) => x.instrument_id), bands: (bm || []).filter((x: any) => x.band_id === m.id).map((x: any) => x.band_id) })));
+    setInstruments(prev => prev.map(inst => ({ ...inst, musicians: (mi || []).filter((x: any) => x.instrument_id === inst.id).map((x: any) => x.musician_id) })));
+  }, []);
+
   // Realtime subscription
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
+
+    const handleUpdate = (payload: any) => {
+        const { table } = payload;
+        console.log(`[Realtime] Granular change for ${table}:`, payload);
+        
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            if (['setlist_songs', 'event_setlists', 'master_setlist_setlists'].includes(table)) {
+                syncSetlists();
+            } else if (['band_musicians', 'musician_instruments'].includes(table)) {
+                syncBandData();
+            } else {
+                fetchEntity(table);
+            }
+        }, 300);
+    };
 
     const channel = supabase
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public' },
-        (payload) => {
-          console.log('[Realtime] Change received:', payload);
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            loadAll();
-          }, 300);
-        }
+        handleUpdate
       )
       .subscribe();
 
@@ -209,7 +250,7 @@ export const useAppData = () => {
       clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [loadAll]);
+  }, [loadAll, fetchEntity]);
 
   // Initial fetch
   useEffect(() => { 

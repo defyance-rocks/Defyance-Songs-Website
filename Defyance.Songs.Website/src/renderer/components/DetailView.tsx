@@ -111,8 +111,24 @@ export const DetailView: React.FC<DetailViewProps> = ({
                   else label = getMasterSetlistLabel(rel as MasterSetList, events) + ' (Master)';
                 }
 
-                const rTab: NavState['tab'] = (rel.type === 'master' || rel.type === 'parent-master') ? 'master-setlists' : ((rel.type === 'setlist' || rel.type === 'parent-event') ? 'setlists' : (rel.type === 'parent-tour' ? 'tours' : (tab === 'songs' ? 'setlists' : (tab === 'bands' ? 'musicians' : (tab === 'musicians' ? 'instruments' : (tab === 'instruments' ? 'musicians' : (tab === 'setlists' ? 'songs' : tab)))))));
-                const isRelSong = (tab === 'setlists' || tab === 'master-setlists' || tab === 'events') && !rel.type;
+                const getRTab = (): NavState['tab'] => {
+                  if (rel.type === 'master' || rel.type === 'parent-master') return 'master-setlists';
+                  if (rel.type === 'setlist' || rel.type === 'parent-event') return 'setlists';
+                  if (rel.type === 'parent-tour') return 'tours';
+                  
+                  if (tab === 'bands') return 'musicians';
+                  if (tab === 'musicians') return 'instruments';
+                  if (tab === 'instruments') return 'musicians';
+                  if (tab === 'songs') return 'setlists';
+                  if (tab === 'setlists') return 'songs';
+                  if (tab === 'master-setlists') return 'setlists';
+                  if (tab === 'events') return rel.type === 'master' ? 'master-setlists' : 'setlists';
+                  if (tab === 'tours') return 'events';
+                  return tab as NavState['tab'];
+                };
+                const rTab = getRTab();
+
+                const isRelSong = (tab === 'setlists' || tab === 'events') && !rel.type;
                 const hasHigh = isRelSong && rel.vocalRange === 'High';
 
                 const isLinkedToNext = list[index + 1] && rel.linked_to === list[index + 1].id;
