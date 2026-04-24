@@ -33,7 +33,7 @@ export const getStyles = (isMobile: boolean, isSidebarOpen: boolean) => {
       zIndex: 1000
     },
     sidebarItem: { padding: '12px 24px', cursor: 'pointer', transition: 'background 0.2s', fontSize: 14, fontWeight: 500 },
-    main: { flex: 1, overflowY: 'auto', padding: isMobile ? '16px' : '32px', marginTop: isMobile ? 60 : 0 },
+    main: { flex: 1, overflowY: 'auto', padding: isMobile ? '16px' : '32px', paddingBottom: isMobile ? 'calc(80px + env(safe-area-inset-bottom))' : '32px', marginTop: isMobile ? 60 : 0 },
     card: { background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 8, padding: isMobile ? 16 : 24, marginBottom: 24 },
     heading: { margin: '0 0 16px 0', color: theme.textHighlight, fontSize: isMobile ? 20 : 24 },
     subHeading: { margin: '24px 0 12px 0', fontSize: 16, fontWeight: 600, color: theme.textHighlight },
@@ -62,6 +62,7 @@ export const getStyles = (isMobile: boolean, isSidebarOpen: boolean) => {
     bottomNav: {
       display: isMobile ? 'flex' : 'none',
       height: 60,
+      paddingBottom: 'env(safe-area-inset-bottom)',
       background: theme.sidebar,
       borderTop: `1px solid ${theme.border}`,
       position: 'fixed',

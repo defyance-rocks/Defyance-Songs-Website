@@ -1,17 +1,16 @@
 import React from 'react';
 import { 
-  NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList 
+  NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList, AppEntity,
+  isSong, isMusician, isEvent
 } from '../../shared/models';
 import { theme } from '../styles';
 import { formatDate, isPast, getSetlistLabel, getMasterSetlistLabel } from '../utils';
 
-type RelationalItem = any; // Fallback to any for complex heterogeneous relationships
-
 interface DetailViewProps {
   tab: NavState['tab'];
-  item: Band | Musician | Song | SetList | Event | Tour | MasterSetList | null;
-  available: RelationalItem[];
-  currentRelationships: RelationalItem[];
+  item: AppEntity | null;
+  available: (AppEntity & { type?: string })[];
+  currentRelationships: (AppEntity & { type?: string; linked_to?: string | null })[];
   assignId: string;
   assignSearch: string;
   draggedIndex: number | null;
@@ -60,7 +59,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 32 }}>
           {tab === 'musicians' && (<><div><label style={styles.label}>Email</label><p>{(item as Musician).email || 'N/A'}</p></div><div><label style={styles.label}>Phone</label><p>{(item as Musician).phone || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Bio</label><p>{(item as Musician).bio || 'No bio provided.'}</p></div></>)}
-          {tab === 'songs' && (<><div><label style={styles.label}>Artist</label><p>{(item as Song).artist}</p></div><div><label style={styles.label}>Vocal Range</label><p>{(item as Song).vocalRange || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Notes</label><p>{(item as Song).notes || 'None'}</p></div>{(item as Song).link && <div><label style={styles.label}>Link</label><a href={(item as Song).link || undefined} target="_blank" rel="noreferrer" style={styles.link}>{(item as Song).link}</a></div>}</>)}
+          {tab === 'songs' && (<><div><label style={styles.label}>Artist</label><p>{(item as Song).artist}</p></div><div><label style={styles.label}>Vocal Range</label><p>{(item as Song).vocalRange || 'N/A'}</p></div><div><label style={styles.label}>Key</label><p>{(item as Song).key || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Notes</label><p>{(item as Song).notes || 'None'}</p></div>{(item as Song).link && <div><label style={styles.label}>Link</label><a href={(item as Song).link || undefined} target="_blank" rel="noreferrer" style={styles.link}>{(item as Song).link}</a></div>}</>)}
           {tab === 'events' && (<><div><label style={styles.label}>Location</label><p>{(item as Event).location}</p></div><div><label style={styles.label}>Date</label><p>{(item as Event).date}</p></div><div><label style={styles.label}>Time</label><p>{(item as Event).time}</p></div></>)}
         </div>
         <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 24 }}>
@@ -93,7 +92,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
               if (tab === 'songs') return 'Setlists';
               if (tab === 'setlists') return 'Songs';
               if (tab === 'master-setlists') return 'Setlists';
-              if (tab === 'events') return 'Playlists';
+              if (tab === 'events') return 'Setlists';
               if (tab === 'tours') return 'Events';
               return 'Children';
             };
@@ -205,7 +204,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
                           </button>
                       )}
                       <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14 }} onClick={() => onNavigate(rTab, rel.id, false)}>
-                        {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
+                        {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.key ? ` • ${rel.key}` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
                       </span>
                     </div>                    
                     

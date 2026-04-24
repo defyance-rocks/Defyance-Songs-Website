@@ -94,7 +94,10 @@ export const ListView: React.FC<ListViewProps> = ({
         return rA !== rB ? rA - rB : a.name.localeCompare(b.name);
       }
       if (songSortMode === 'key') {
-          return (a.key || '').localeCompare(b.key || '');
+          const keyOrder = ['Ab', 'A', 'Bb', 'B', 'C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G'];
+          const idxA = keyOrder.indexOf(a.key || '');
+          const idxB = keyOrder.indexOf(b.key || '');
+          return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
       }
       if (songSortMode === 'unassigned') {
         const assignedA = setlists.some(sl => sl.songs.some(s => s.id === a.id));
@@ -210,7 +213,7 @@ export const ListView: React.FC<ListViewProps> = ({
                 onChange={e => onSongFilterKeyChange?.(e.target.value)}
               >
                 <option value="">All Keys</option>
-                {['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'].map(k => <option key={k} value={k}>{k}</option>)}
+                {['Ab', 'A', 'Bb', 'B', 'C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G'].map(k => <option key={k} value={k}>{k}</option>)}
               </select>
             </div>
           </div>

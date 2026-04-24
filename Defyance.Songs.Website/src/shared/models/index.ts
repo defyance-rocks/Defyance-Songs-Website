@@ -76,6 +76,17 @@ export interface MasterSetList {
   eventId?: string;
 }
 
+export type AppEntity = Band | Musician | Instrument | Song | SetList | Event | Tour | MasterSetList;
+
+export const isBand = (item: AppEntity | null): item is Band => !!item && 'musicians' in item && !('phone' in item);
+export const isMusician = (item: AppEntity | null): item is Musician => !!item && 'phone' in item;
+export const isInstrument = (item: AppEntity | null): item is Instrument => !!item && !('artist' in item) && !('musicians' in item) && !('setlists' in item); // Simplification, might need refinement
+export const isSong = (item: AppEntity | null): item is Song => !!item && 'artist' in item;
+export const isSetList = (item: AppEntity | null): item is SetList => !!item && 'songs' in item;
+export const isEvent = (item: AppEntity | null): item is Event => !!item && 'location' in item;
+export const isTour = (item: AppEntity | null): item is Tour => !!item && 'events' in item && !('musicians' in item);
+export const isMasterSetList = (item: AppEntity | null): item is MasterSetList => !!item && 'setlists' in item && !('events' in item);
+
 export interface NavState {
   tab: 'bands' | 'musicians' | 'songs' | 'instruments' | 'setlists' | 'events' | 'tours' | 'master-setlists' | 'printouts' | 'login';
   selectedId: string | null;

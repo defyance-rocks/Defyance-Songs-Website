@@ -23,7 +23,7 @@ export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists
     <div style={styles.card}>
       <h2 style={styles.heading}>Print Center</h2>
       <div style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <input style={{ ...styles.input, marginBottom: 0 }} placeholder="Search playlists..." value={filter} onChange={e => setFilter(e.target.value)} />
+        <input style={{ ...styles.input, marginBottom: 0 }} placeholder="Search setlists..." value={filter} onChange={e => setFilter(e.target.value)} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={highVis} onChange={e => setHighVis(e.target.checked)} />
           High Visibility Mode

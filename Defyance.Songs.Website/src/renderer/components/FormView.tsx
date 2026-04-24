@@ -62,7 +62,7 @@ export const FormView: React.FC<FormViewProps> = ({
           <label style={styles.label}>Key</label>
           <select style={styles.input} value={editKey} onChange={e => setEditKey(e.target.value)}>
             <option value="">None</option>
-            {['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'].map(k => <option key={k} value={k}>{k}</option>)}
+            {['Ab', 'A', 'Bb', 'B', 'C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G'].map(k => <option key={k} value={k}>{k}</option>)}
           </select>
           <label style={styles.label}>Notes</label>
           <textarea style={{ ...styles.input, minHeight: 80 }} value={editNotes} onChange={e => setEditNotes(e.target.value)} />
