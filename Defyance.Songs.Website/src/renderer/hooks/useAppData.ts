@@ -166,19 +166,39 @@ export const useAppData = () => {
     };
 
     const range = getChainRange(index, newList);
-    const chain = newList.splice(range.start, range.end - range.start + 1);
-    const insertAt = target > index ? target - chain.length + 1 : target;
-    newList.splice(insertAt, 0, ...chain);
+    const itemsToMove = newList.splice(range.start, range.end - range.start + 1);
     
+    // Calculate insertion index in the now-shrunken list
+    let insertAt = target;
+    if (range.start < target) {
+        // Dragging DOWN: account for removed items shifting the target index back
+        insertAt = target - itemsToMove.length + (target === list.length - 1 ? 1 : 0);
+        // Correcting for the specific case: if dropping on 5 (idx 4) after removing 2 (idx 1), 
+        // target (4) - length (1) = 3. Splice at 3 puts it before 5.
+        insertAt = target - itemsToMove.length;
+    }
+
+    // Ensure we don't drop in the middle of another chain
+    const targetInShrunkenList = Math.max(0, Math.min(insertAt, newList.length - 1));
+    const targetChain = getChainRange(targetInShrunkenList, newList);
+    if (insertAt > targetChain.start && insertAt <= targetChain.end) {
+        // Move to the boundary of the target chain
+        if (range.start < target) insertAt = targetChain.end + 1;
+        else insertAt = targetChain.start;
+    }
+
+    newList.splice(insertAt, 0, ...itemsToMove);
+    const finalNewList = newList;
+
     // Optimistic UI
-    if (tab === 'setlists') setSetlists(prev => prev.map(sl => sl.id === selectedId ? {...sl, songs: newList} : sl));
-    else if (tab === 'master-setlists') setMasterSetlists(prev => prev.map(ms => ms.id === selectedId ? {...ms, setlists: newList.map(s => s.id)} : ms));
-    else if (tab === 'events') setEvents(prev => prev.map(e => e.id === selectedId ? {...e, setLists: newList} : e));
+    if (tab === 'setlists') setSetlists(prev => prev.map(sl => sl.id === selectedId ? {...sl, songs: finalNewList} : sl));
+    else if (tab === 'master-setlists') setMasterSetlists(prev => prev.map(ms => ms.id === selectedId ? {...ms, setlists: finalNewList.map(s => s.id)} : ms));
+    else if (tab === 'events') setEvents(prev => prev.map(e => e.id === selectedId ? {...e, setLists: finalNewList} : e));
 
     try {
-        if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
-        else if (tab === 'master-setlists') await supabase.rpc('reorder_master_setlist_setlists', { p_master_setlist_id: selectedId, p_setlist_ids: newList.map(s => s.id), p_positions: newList.map((_, i) => i) });
-        else if (tab === 'events') await Promise.all(newList.map((e, i) => {
+        if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: finalNewList.map(s => s.id), p_positions: finalNewList.map((_, i) => i) });
+        else if (tab === 'master-setlists') await supabase.rpc('reorder_master_setlist_setlists', { p_master_setlist_id: selectedId, p_setlist_ids: finalNewList.map(s => s.id), p_positions: finalNewList.map((_, i) => i) });
+        else if (tab === 'events') await Promise.all(finalNewList.map((e, i) => {
             const query = supabase.from('event_setlists').update({ position: i }).eq('event_id', selectedId);
             return e.type === 'setlist' ? query.eq('setlist_id', e.id) : query.eq('master_setlist_id', e.id);
         }));

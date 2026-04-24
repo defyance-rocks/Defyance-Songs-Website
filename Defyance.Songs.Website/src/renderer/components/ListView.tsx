@@ -33,6 +33,7 @@ export const ListView: React.FC<ListViewProps> = ({
   events, tours, setlists, masterSetlists,
   readOnly = false
 }) => {
+  const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
   let filtered = [...data];
   let orderedSongs: string[] = [];
 
@@ -227,18 +228,47 @@ export const ListView: React.FC<ListViewProps> = ({
 
         const subLabel = tab === 'songs' ? `${(item as Song).artist}${ (item as Song).key ? ` • Key: ${(item as Song).key}` : '' }` : '';
 
+        const isMobile = window.innerWidth < 768;
+
         return (
           <li key={item.id} style={{ ...styles.listItem, opacity: past ? 0.4 : 1 }}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontWeight: 500, cursor: 'pointer', color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none' }} onClick={() => onNavigate(tab, item.id, false)}>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, cursor: 'pointer' }} onClick={() => onNavigate(tab, item.id, false)}>
+              <span style={{ fontWeight: 500, color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none', fontSize: isMobile ? 16 : 14, minHeight: isMobile ? 24 : 'auto', display: 'flex', alignItems: 'center' }}>
                 {label}{tab === 'songs' && item.vocalRange === 'High' ? '*' : ''}
               </span>
-              {subLabel && <span style={{ fontSize: 12, color: theme.muted }}>{subLabel}</span>}
+              {subLabel && <span style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>{subLabel}</span>}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {!readOnly && <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>}
-              {!readOnly && <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>}
-            </div>
+            
+            {isMobile && !readOnly ? (
+              <button 
+                style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 12px', minWidth: 44, minHeight: 44 }}
+                onClick={() => setActiveMenuId(item.id)}
+              >
+                ⋮
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {!readOnly && <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>}
+                {!readOnly && <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>}
+              </div>
+            )}
+
+            {activeMenuId === item.id && (
+              <div style={styles.menuOverlay} onClick={() => setActiveMenuId(null)}>
+                <div style={styles.menuContent} onClick={e => e.stopPropagation()}>
+                  <div style={{ padding: '0 24px 16px 24px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight }}>{label}</div>
+                  <div style={styles.menuItem} onClick={() => { onNavigate(tab, item.id, true); setActiveMenuId(null); }}>
+                    <span style={{ fontSize: 20 }}>✏️</span> Edit Details
+                  </div>
+                  <div style={{ ...styles.menuItem, color: theme.danger }} onClick={() => { onDelete(item.id); setActiveMenuId(null); }}>
+                    <span style={{ fontSize: 20 }}>🗑️</span> Delete Item
+                  </div>
+                  <div style={{ ...styles.menuItem, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted, marginTop: 8 }} onClick={() => setActiveMenuId(null)}>
+                    Cancel
+                  </div>
+                </div>
+              </div>
+            )}
           </li>
         );
       })}</ul>

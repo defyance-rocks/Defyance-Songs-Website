@@ -41,6 +41,8 @@ export const DetailView: React.FC<DetailViewProps> = ({
   onMove, onToggleLink, onNavigate, setDraggedIndex, setDragOverIndex, events, masterSetlists,
   readOnly = false
 }) => {
+  const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
+
   if (!item) return <div style={{ maxWidth: 900 }}><button style={styles.backBtn} onClick={onBack}>← Back</button><p>Item not found.</p></div>;
 
   return (
@@ -136,11 +138,15 @@ export const DetailView: React.FC<DetailViewProps> = ({
                 const canMoveUp = !readOnly && !isParent && index > 0 && !isLinkedFromPrev;
                 const canMoveDown = !readOnly && !isParent && index < list.length - 1 && !isLinkedToNext;
 
+                const isMobile = window.innerWidth < 768;
+                const showReorder = !readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab);
+
                 return (
                   <li 
                     key={`${rel.type || 'single'}:${rel.id || index}:${index}`} 
-                    style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s' }} 
-                    draggable={(!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} 
+                    data-index={index}
+                    style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s', userSelect: 'none', WebkitUserSelect: 'none' }} 
+                    draggable={!isMobile && (!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} 
                     onDragStart={() => setDraggedIndex(index)} 
                     onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} 
                     onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} 
@@ -148,17 +154,46 @@ export const DetailView: React.FC<DetailViewProps> = ({
                     onDragEnter={e => { e.preventDefault(); setDragOverIndex(index); }} 
                     onDragLeave={() => setDragOverIndex(null)}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      {(!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                      {showReorder && (
+                        <div 
+                          className="reorder-handle"
+                          onTouchStart={() => setDraggedIndex(index)}
+                          onTouchMove={(e) => {
+                            const touch = e.touches[0];
+                            const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                            const li = el?.closest('li');
+                            if (li) {
+                              const idx = parseInt(li.getAttribute('data-index') || '-1');
+                              if (idx !== -1 && idx !== index) setDragOverIndex(idx);
+                            }
+                          }}
+                          onTouchEnd={() => {
+                            if (dragOverIndex !== null && index !== dragOverIndex) {
+                              // If dragging DOWN, we want to drop AFTER the target to match visual intuition
+                              const adjustedTarget = (index < dragOverIndex) ? dragOverIndex : dragOverIndex;
+                              onMove(index, 'down', adjustedTarget);
+                            }
+                            setDraggedIndex(null);
+                            setDragOverIndex(null);
+                          }}
+                          style={{ fontSize: 24, color: theme.muted, cursor: 'grab', padding: '0 8px', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+                        >
+                          ⣿
+                        </div>
+                      )}
+                      
+                      {!isMobile && showReorder && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                           <button style={{ background: 'transparent', border: 'none', color: !canMoveUp ? theme.muted : theme.accent, cursor: !canMoveUp ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'up')} disabled={!canMoveUp}>▲</button>
                           <button style={{ background: 'transparent', border: 'none', color: !canMoveDown ? theme.muted : theme.accent, cursor: !canMoveDown ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'down')} disabled={!canMoveDown}>▼</button>
                         </div>
                       )}
+
                       {tab === 'setlists' && !isParent && (
                           <button 
                             disabled={readOnly}
-                            style={{ background: 'transparent', border: 'none', cursor: readOnly ? 'default' : 'pointer', marginRight: 8, fontSize: 16, opacity: (readOnly && !rel.linked_to) ? 0 : 1 }} 
+                            style={{ background: 'transparent', border: 'none', cursor: readOnly ? 'default' : 'pointer', marginRight: 8, fontSize: 20, padding: '8px', opacity: (readOnly && !rel.linked_to) ? 0 : 1 }} 
                             onClick={(e) => {
                                 if (readOnly) return;
                                 e.stopPropagation();
@@ -169,15 +204,50 @@ export const DetailView: React.FC<DetailViewProps> = ({
                               {rel.linked_to ? '🔗' : '⛓️'}
                           </button>
                       )}
-                      <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none' }} onClick={() => onNavigate(rTab, rel.id, false)}>
+                      <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14 }} onClick={() => onNavigate(rTab, rel.id, false)}>
                         {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
                       </span>
-                    </div>                    <div style={{ display: 'flex', gap: 8 }}>
-                      {tab === 'events' && !isParent && (
-                        <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
-                      )}
-                      {!readOnly && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
-                    </div>
+                    </div>                    
+                    
+                    {isMobile ? (
+                      <button 
+                        style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 8px', minWidth: 44, minHeight: 44 }}
+                        onClick={() => setActiveMenuId(rel.id)}
+                      >
+                        ⋮
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {tab === 'events' && !isParent && (
+                          <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
+                        )}
+                        {!readOnly && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
+                      </div>
+                    )}
+
+                    {activeMenuId === rel.id && (
+                      <div style={styles.menuOverlay} onClick={() => setActiveMenuId(null)}>
+                        <div style={styles.menuContent} onClick={e => e.stopPropagation()}>
+                          <div style={{ padding: '0 24px 16px 24px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight }}>{label}</div>
+                          <div style={styles.menuItem} onClick={() => { onNavigate(rTab, rel.id, false); setActiveMenuId(null); }}>
+                            <span style={{ fontSize: 20 }}>👁️</span> View Details
+                          </div>
+                          {tab === 'events' && !isParent && (
+                            <div style={styles.menuItem} onClick={() => { onPrint(rel.id); setActiveMenuId(null); }}>
+                              <span style={{ fontSize: 20 }}>🖨️</span> Print Setlist
+                            </div>
+                          )}
+                          {!readOnly && (
+                            <div style={{ ...styles.menuItem, color: theme.danger }} onClick={() => { onUnassign(rel.id, rel.type); setActiveMenuId(null); }}>
+                              <span style={{ fontSize: 20 }}>❌</span> Remove Relationship
+                            </div>
+                          )}
+                          <div style={{ ...styles.menuItem, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted, marginTop: 8 }} onClick={() => setActiveMenuId(null)}>
+                            Cancel
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 );
               })}</ul>

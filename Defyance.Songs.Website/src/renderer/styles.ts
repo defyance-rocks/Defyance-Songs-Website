@@ -38,13 +38,13 @@ export const getStyles = (isMobile: boolean, isSidebarOpen: boolean) => {
     heading: { margin: '0 0 16px 0', color: theme.textHighlight, fontSize: isMobile ? 20 : 24 },
     subHeading: { margin: '24px 0 12px 0', fontSize: 16, fontWeight: 600, color: theme.textHighlight },
     list: { listStyle: 'none', padding: 0, margin: 0 },
-    listItem: { padding: isMobile ? '8px 12px' : '12px 16px', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-    button: { padding: '8px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
-    input: { padding: '10px 12px', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, width: '100%', marginBottom: 12 },
+    listItem: { padding: isMobile ? '12px 12px' : '12px 16px', minHeight: isMobile ? 56 : 'auto', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+    button: { padding: isMobile ? '12px 16px' : '8px 16px', minHeight: isMobile ? 44 : 'auto', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+    input: { padding: '12px 12px', background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, width: '100%', marginBottom: 12, minHeight: isMobile ? 48 : 'auto' },
     label: { display: 'block', fontSize: 12, color: theme.muted, marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' },
-    link: { color: theme.accent, cursor: 'pointer', fontSize: isMobile ? 13 : 14 },
+    link: { color: theme.accent, cursor: 'pointer', fontSize: isMobile ? 15 : 14, minHeight: isMobile ? 44 : 'auto', display: 'flex', alignItems: 'center' },
     badge: { padding: '2px 8px', borderRadius: 12, fontSize: 11, background: theme.surfaceAlt, border: `1px solid ${theme.border}`, marginLeft: 8 },
-    backBtn: { background: 'transparent', color: theme.muted, border: `1px solid ${theme.border}`, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 12px', borderRadius: 6 },
+    backBtn: { background: 'transparent', color: theme.muted, border: `1px solid ${theme.border}`, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '12px 16px', borderRadius: 6, minHeight: 48 },
     mobileHeader: {
       height: 60,
       background: theme.sidebar,
@@ -58,6 +58,59 @@ export const getStyles = (isMobile: boolean, isSidebarOpen: boolean) => {
       left: 0,
       width: '100%',
       zIndex: 1001
+    },
+    bottomNav: {
+      display: isMobile ? 'flex' : 'none',
+      height: 60,
+      background: theme.sidebar,
+      borderTop: `1px solid ${theme.border}`,
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      width: '100%',
+      zIndex: 1001,
+      justifyContent: 'space-around',
+      alignItems: 'center'
+    },
+    bottomNavItem: {
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 10,
+      gap: 4,
+      color: theme.muted,
+      cursor: 'pointer'
+    },
+    menuOverlay: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      zIndex: 2000,
+      display: 'flex',
+      alignItems: 'flex-end',
+      justifyContent: 'center'
+    },
+    menuContent: {
+      background: theme.surface,
+      width: '100%',
+      borderRadius: '12px 12px 0 0',
+      padding: '16px 0',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4
+    },
+    menuItem: {
+      padding: '16px 24px',
+      fontSize: 16,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      cursor: 'pointer'
     }
   };
   return styles;

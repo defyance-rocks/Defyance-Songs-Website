@@ -263,8 +263,48 @@ const App: React.FC = () => {
 
   const isReadOnly = !session;
 
+  const BottomNav = () => (
+    <div style={styles.bottomNav}>
+      {(['songs', 'setlists', 'master-setlists', 'events', 'tours'] as const).map(t => (
+        <div key={t} style={{ ...styles.bottomNavItem, color: tab === t ? theme.accent : theme.muted }} onClick={() => { setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); }}>
+          <span style={{ fontSize: 20 }}>
+            {t === 'songs' && '🎵'}
+            {t === 'setlists' && '📜'}
+            {t === 'master-setlists' && '🗂️'}
+            {t === 'events' && '📅'}
+            {t === 'tours' && '🚌'}
+          </span>
+          <span style={{ fontSize: 9 }}>
+            {t === 'master-setlists' ? 'Masters' : t.charAt(0).toUpperCase() + t.slice(1)}
+          </span>
+        </div>
+      ))}
+      <div 
+        style={{ ...styles.bottomNavItem, color: theme.danger }} 
+        onClick={() => { 
+          if (session) {
+            if (window.confirm('Sign out?')) supabase.auth.signOut();
+          } else {
+            setNavStack(prev => [...prev, { tab, selectedId, isEditing }]); 
+            setTab('login'); 
+            setSelectedId(null); 
+            setIsEditing(false); 
+            setIsPrinting(false); 
+            setActivePrintId(null); 
+            if (isMobile) setIsSidebarOpen(false); 
+          }
+        }}
+      >
+        <span style={{ fontSize: 20 }}>{session ? '🚪' : '🔒'}</span>
+        <span style={{ fontSize: 9 }}>{session ? 'Logout' : 'Login'}</span>
+      </div>
+    </div>
+  );
+
+  const isSortablePage = ['setlists', 'master-setlists', 'events', 'tours'].includes(tab) && selectedId && !isEditing;
+
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, userSelect: isSortablePage ? 'none' : 'auto', WebkitUserSelect: isSortablePage ? 'none' : 'auto' }}>
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff !important; color: #000 !important; } main { padding: 0 !important; overflow: visible !important; } }`}</style>
       {!isPrinting && isMobile && (
         <div style={styles.mobileHeader}>
@@ -282,7 +322,7 @@ const App: React.FC = () => {
         }
         setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); 
       }} />}
-      <main style={{ ...styles.main, background: isPrinting ? '#fff' : theme.background }}>
+      <main style={{ ...styles.main, background: isPrinting ? '#fff' : theme.background, paddingBottom: isMobile ? 80 : styles.main.padding }}>
         <Suspense fallback={<div style={{ color: theme.muted, padding: 20 }}>Loading...</div>}>
           {tab === 'login' ? (
             <Login styles={styles} onGuest={handleBack} />
@@ -326,6 +366,7 @@ const App: React.FC = () => {
           )}
         </Suspense>
       </main>
+      {!isPrinting && isMobile && <BottomNav />}
     </div>
   );
 };
