@@ -128,5 +128,70 @@ export const useOperations = (
     await supabase.from('setlist_songs').update({ linked_to: linkedTo }).eq('setlist_id', setlistId).eq('song_id', songId);
   };
 
-  return { handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink };
+  const handleUploadDocument = async (entityType: string, entityId: string, file: File) => {
+    const filename = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+    const filePath = `${entityType}/${entityId}/${filename}`;
+
+    let uploadBlob: Blob | File = file;
+
+    // Pre-upload scrubbing for text files to kill the Â artifact at the source
+    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+        try {
+            const text = await file.text();
+            const sanitizedText = text
+                .replace(/\u00A0/g, ' ')  // Replace NBSP with standard space
+                .replace(/\u00C2/g, '')   // Remove Ghost A byte
+                .replace(/Â/g, '');        // Final literal safety sweep
+            
+            uploadBlob = new Blob([sanitizedText], { type: 'text/plain; charset=utf-8' });
+        } catch (err) {
+            console.error('[Upload] Pre-scrubbing failed, uploading original:', err);
+        }
+    }
+
+    const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, uploadBlob, {
+            contentType: uploadBlob.type,
+            cacheControl: '3600',
+            upsert: false
+        });
+
+    if (uploadError) {
+        console.error('Document upload failed:', uploadError);
+        return;
+    }
+
+    const { error: dbError } = await supabase.from('entity_documents').insert({
+        entity_type: entityType,
+        entity_id: entityId,
+        name: file.name,
+        file_path: filePath
+    });
+
+    if (dbError) {
+        console.error('Document DB entry failed:', dbError);
+    } else {
+        await loadAll();
+    }
+  };
+
+  const handleDeleteDocument = async (docId: string, filePath: string) => {
+    if (!window.confirm('Delete this document?')) return;
+
+    const { error: storageError } = await supabase.storage
+        .from('documents')
+        .remove([filePath]);
+
+    if (storageError) console.error('Document storage delete failed:', storageError);
+
+    const { error: dbError } = await supabase.from('entity_documents').delete().eq('id', docId);
+    if (dbError) {
+        console.error('Document DB delete failed:', dbError);
+    } else {
+        await loadAll();
+    }
+  };
+
+  return { handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink, handleUploadDocument, handleDeleteDocument };
 };

@@ -1,4 +1,5 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 const path = require('path');
 const webpack = require('webpack');
 require('dotenv').config();
@@ -27,6 +28,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist/renderer'),
     filename: '[name].[contenthash].js',
+    publicPath: '/',
     clean: true,
   },
   optimization: {
@@ -59,11 +61,17 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/renderer/index.html',
     }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'src/renderer/sw.js', to: '.' }
+      ],
+    }),
   ],
   devServer: {
     port: 3002,
     static: {
       directory: path.join(__dirname, 'dist/renderer'),
     },
+    historyApiFallback: true,
   },
 };

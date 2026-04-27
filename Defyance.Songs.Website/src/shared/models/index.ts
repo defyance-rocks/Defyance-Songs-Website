@@ -76,6 +76,15 @@ export interface MasterSetList {
   eventId?: string;
 }
 
+export interface EntityDocument {
+  id: string;
+  entity_type: NavState['tab'];
+  entity_id: string;
+  name: string;
+  file_path: string;
+  created_at?: string;
+}
+
 export type AppEntity = Band | Musician | Instrument | Song | SetList | Event | Tour | MasterSetList;
 
 export const isBand = (item: AppEntity | null): item is Band => !!item && 'musicians' in item && !('phone' in item);

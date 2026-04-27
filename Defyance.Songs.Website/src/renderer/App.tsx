@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useRef, useCallback, Suspense, lazy } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList } from '../shared/models';
+import { NavState, Band, Musician, Instrument, Song, SetList, Event, Tour, MasterSetList, EntityDocument } from '../shared/models';
 import { theme, getStyles } from './styles';
 import { getSetlistLabel } from './utils';
 import { getCurrentRels } from './utils/relationships';
+import { preparePDFData } from './utils/pdfPrepare';
+import { pdf } from '@react-pdf/renderer';
+import { SetlistPDF } from './components/PDFDocument';
 import { useAppData } from './hooks/useAppData';
 import { useNavigation } from './hooks/useNavigation';
 import { useEntityForm } from './hooks/useEntityForm';
@@ -14,7 +17,6 @@ import { Login } from './components/Login';
 const ListView = lazy(() => import('./components/ListView').then(m => ({ default: m.ListView })));
 const DetailView = lazy(() => import('./components/DetailView').then(m => ({ default: m.DetailView })));
 const FormView = lazy(() => import('./components/FormView').then(m => ({ default: m.FormView })));
-const PrintView = lazy(() => import('./components/PrintView').then(m => ({ default: m.PrintView })));
 const PrintCenter = lazy(() => import('./components/PrintCenter').then(m => ({ default: m.PrintCenter })));
 
 const App: React.FC = () => {
@@ -24,13 +26,14 @@ const App: React.FC = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const { 
-    bands, musicians, instruments, songs, setlists, events, tours, masterSetlists,
-    handleSave: dbSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink 
+    bands, musicians, instruments, songs, setlists, events, tours, masterSetlists, documents,
+    handleSave: dbSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink,
+    handleUploadDocument, handleDeleteDocument, loadAll
   } = useAppData();
 
   const {
-    tab, setTab, selectedId, setSelectedId, isEditing, setIsEditing,
-    navStack, setNavStack, navigateTo: baseNavigateTo, handleBack: baseHandleBack
+    tab, selectedId, isEditing, search, sort, filter, filterKey,
+    navigateTo, handleBack, setListState
   } = useNavigation();
 
   const { editFields, setEditFields, populateFields, onSave: formSave } = useEntityForm(dbSave);
@@ -46,23 +49,22 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [activePrintId, setActivePrintId] = useState<string | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
-  const [songsSearch, setSongsSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  
+  // Local search state for immediate typing feedback, synced to URL via debounce
+  const [localSearch, setLocalSearch] = useState(search);
+  useEffect(() => { setLocalSearch(search); }, [search]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(songsSearch), 200);
+    const timer = setTimeout(() => {
+        if (localSearch !== search) setListState({ q: localSearch });
+    }, 300);
     return () => clearTimeout(timer);
-  }, [songsSearch]);
+  }, [localSearch, search, setListState]);
 
-  const [songSortMode, setSongSortMode] = useState<'alpha' | 'artist' | 'unassigned' | 'vocal' | 'key'>('alpha');
-  const [songFilterId, setSongFilterId] = useState<string>('');
-  const [songFilterKey, setSongFilterKey] = useState<string>('');
-  const [assignId, setAssignId] = useState('');
   const firstInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
 
   useEffect(() => {
@@ -76,21 +78,10 @@ const App: React.FC = () => {
     return [...bands, ...musicians, ...songs, ...instruments, ...setlists, ...events, ...tours, ...masterSetlists].find(x => x.id === id) || null;
   }, [bands, musicians, songs, instruments, setlists, events, tours, masterSetlists]);
 
-  const navigateTo = (newTab: NavState['tab'], id: string | null = null, edit: boolean = false) => {
-    baseNavigateTo(newTab, id, edit);
-    setAssignSearch('');
-    if (!edit) setSongsSearch('');
-    if (id) populateFields(getItemById(id), newTab);
-    else populateFields(null, newTab);
-  };
-
-  const handleBack = useCallback(() => {
-    if (isPrinting) { setIsPrinting(false); return; }
-    baseHandleBack((prev) => {
-        setAssignSearch('');
-        if (prev.selectedId) populateFields(getItemById(prev.selectedId), prev.tab);
-    });
-  }, [baseHandleBack, isPrinting, getItemById, populateFields]);
+  useEffect(() => {
+      if (selectedId) populateFields(getItemById(selectedId), tab);
+      else populateFields(null, tab);
+  }, [selectedId, tab, getItemById, populateFields]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') handleBack(); };
@@ -109,11 +100,41 @@ const App: React.FC = () => {
     }
   };
 
+  const onPrint = useCallback(async (printTab: string, id: string | null, highVis: boolean = false) => {
+    setIsGeneratingPDF(true);
+    try {
+        const item = getItemById(id || selectedId);
+        const datasets = preparePDFData(printTab, item, songs, setlists, masterSetlists, events, null);
+        if (datasets.length === 0) return;
+
+        const doc = <SetlistPDF datasets={datasets} highVis={highVis} />;
+        const blob = await pdf(doc).toBlob();
+        const filename = `${datasets[0].h1.replace(/\s+/g, '_')}.pdf`;
+        
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        const url = URL.createObjectURL(file) + `#${filename}`;
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (err) {
+        console.error('PDF generation failed:', err);
+    } finally {
+        setIsGeneratingPDF(false);
+    }
+  }, [getItemById, songs, setlists, masterSetlists, events, selectedId]);
+
   const onAssign = async () => {
     if (!selectedId || !assignId) return;
-    await handleAssign(tab, selectedId, assignId, getItemById(selectedId));
+    const assignId_final = assignId; // Logic for assignId state handled below in the render if needed, but currently in state
+    await handleAssign(tab, selectedId, assignId_final, getItemById(selectedId));
     setAssignId(''); setAssignSearch('');
   };
+  const [assignId, setAssignId] = useState('');
 
   const onUnassign = async (id: string, type?: string) => {
     if (!selectedId) return;
@@ -190,17 +211,17 @@ const App: React.FC = () => {
 
   const BottomNav = () => (
     <div style={styles.bottomNav}>
-      {(['songs', 'setlists', 'master-setlists', 'events', 'tours'] as const).map(t => (
-        <div key={t} style={{ ...styles.bottomNavItem, color: tab === t ? theme.accent : theme.muted }} onClick={() => { setNavStack([]); setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); }}>
+      {(['songs', 'setlists', 'master-setlists', 'events', 'printouts'] as const).map(t => (
+        <div key={t} style={{ ...styles.bottomNavItem, color: tab === t ? theme.accent : theme.muted }} onClick={() => { navigateTo(t as any); if (isMobile) setIsSidebarOpen(false); }}>
           <span style={{ fontSize: 20 }}>
             {t === 'songs' && '🎵'}
             {t === 'setlists' && '📜'}
             {t === 'master-setlists' && '🗂️'}
             {t === 'events' && '📅'}
-            {t === 'tours' && '🚌'}
+            {t === 'printouts' && '🖨️'}
           </span>
           <span style={{ fontSize: 9 }}>
-            {t === 'master-setlists' ? 'Masters' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'master-setlists' ? 'Masters' : (t === 'printouts' ? 'Print' : t.charAt(0).toUpperCase() + t.slice(1))}
           </span>
         </div>
       ))}
@@ -210,12 +231,7 @@ const App: React.FC = () => {
           if (session) {
             if (window.confirm('Sign out?')) supabase.auth.signOut();
           } else {
-            setNavStack(prev => [...prev, { tab, selectedId, isEditing }]); 
-            setTab('login'); 
-            setSelectedId(null); 
-            setIsEditing(false); 
-            setIsPrinting(false); 
-            setActivePrintId(null); 
+            navigateTo('login');
             if (isMobile) setIsSidebarOpen(false); 
           }
         }}
@@ -231,7 +247,14 @@ const App: React.FC = () => {
   return (
     <div style={{ ...styles.container, userSelect: isSortablePage ? 'none' : 'auto', WebkitUserSelect: isSortablePage ? 'none' : 'auto' }}>
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff !important; color: #000 !important; } main { padding: 0 !important; overflow: visible !important; } }`}</style>
-      {!isPrinting && isMobile && (
+      
+      {isGeneratingPDF && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 18 }}>
+            GENERATING PDF...
+        </div>
+      )}
+
+      {!isMobile && (
         <div style={styles.mobileHeader}>
           <h2 style={{ fontSize: 18, color: theme.accent, margin: 0 }}>Defyance</h2>
           <button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
@@ -239,21 +262,18 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      {!isPrinting && <Sidebar tab={tab} isMobile={isMobile} isSidebarOpen={isSidebarOpen} styles={styles} session={session} onTabChange={(t) => { 
-        if (t === 'login') setNavStack(prev => [...prev, { tab, selectedId, isEditing }]);
-        else setNavStack([]); 
-        setTab(t); setSelectedId(null); setIsEditing(false); setIsPrinting(false); setActivePrintId(null); if (isMobile) setIsSidebarOpen(false); 
-      }} />}
-      <main style={{ ...styles.main, background: isPrinting ? '#fff' : theme.background, paddingBottom: isMobile ? 'calc(80px + env(safe-area-inset-bottom))' : '32px' }}>
-        <div key={`${tab}-${selectedId}-${isEditing}`} className={isPrinting ? "" : "view-transition"}>
+      <Sidebar tab={tab} isMobile={isMobile} isSidebarOpen={isSidebarOpen} styles={styles} session={session} onTabChange={(t) => { 
+        navigateTo(t);
+        if (isMobile) setIsSidebarOpen(false); 
+      }} />
+      <main style={{ ...styles.main, background: theme.background, overflow: 'auto', padding: isMobile ? '16px' : '32px', paddingBottom: isMobile ? 'calc(80px + env(safe-area-inset-bottom))' : '32px' }}>
+        <div key={`${tab}-${selectedId}-${isEditing}`} className="view-transition">
           <Suspense fallback={<div style={{ color: theme.muted, padding: 20 }}>Loading...</div>}>
             {tab === 'login' ? (
               <Login styles={styles} onGuest={handleBack} />
-            ) : isPrinting ? (
-              <PrintView songs={songs} setlists={setlists} masterSetlists={masterSetlists} events={events} tab={tab} item={getItemById(selectedId)} activePrintId={activePrintId} styles={styles} onClose={() => { setIsPrinting(false); setActivePrintId(null); }} />
             ) : (
               tab === 'printouts' ? (
-                <PrintCenter events={events} masterSetlists={masterSetlists} setlists={setlists} styles={styles} onPrint={(t, id) => { setTab(t); setSelectedId(id); setIsPrinting(true); }} />
+                <PrintCenter events={events} masterSetlists={masterSetlists} setlists={setlists} styles={styles} onPrint={onPrint} />
               ) : (
                 isEditing || selectedId ? (
                   isEditing && !isReadOnly ? (
@@ -261,21 +281,21 @@ const App: React.FC = () => {
                   ) : (() => {
                     const item = getItemById(selectedId);
                     return item ? (
-                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => setIsEditing(true)} onPrint={(id) => { setActivePrintId(id || null); setIsPrinting(true); }} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} readOnly={isReadOnly} />
+                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => navigateTo(tab, selectedId, true)} onPrint={(id) => onPrint(tab, id || selectedId)} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} documents={documents} onUploadDocument={handleUploadDocument} onDeleteDocument={handleDeleteDocument} readOnly={isReadOnly} />
                     ) : <div style={{ color: theme.muted, padding: 20 }}>Item not found.</div>;
                   })()
                 ) : (
                   <ListView 
                     tab={tab} 
                     data={getData()} 
-                    songsSearch={debouncedSearch} 
-                    onSearchChange={setSongsSearch} 
-                    songSortMode={songSortMode}
-                    onSongSortChange={setSongSortMode}
-                    songFilterId={songFilterId}
-                    onSongFilterChange={setSongFilterId}
-                    songFilterKey={songFilterKey}
-                    onSongFilterKeyChange={setSongFilterKey}
+                    songsSearch={localSearch} 
+                    onSearchChange={setLocalSearch} 
+                    songSortMode={sort as any}
+                    onSongSortChange={(s) => setListState({ s })}
+                    songFilterId={filter}
+                    onSongFilterChange={(f) => setListState({ f })}
+                    songFilterKey={filterKey}
+                    onSongFilterKeyChange={(k) => setListState({ k })}
                     onNavigate={navigateTo} 
                     onDelete={(id) => handleDelete(tab, id)} 
                     styles={styles} 
@@ -285,12 +305,13 @@ const App: React.FC = () => {
                     masterSetlists={masterSetlists} 
                     readOnly={isReadOnly}
                   />
-                )            )
+                )
+              )
             )}
           </Suspense>
         </div>
       </main>
-      {!isPrinting && isMobile && <BottomNav />}
+      {isMobile && <BottomNav />}
     </div>
   );
 };

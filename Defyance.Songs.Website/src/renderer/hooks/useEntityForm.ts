@@ -49,6 +49,15 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
     });
   }, [resetFields]);
 
+  const sanitizeText = (text: string) => {
+    if (!text) return '';
+    return text
+        .replace(/\u00A0/g, ' ') // Non-breaking space -> regular space
+        .replace(/\u00C2/g, '')  // Clean up existing split-UTF artifacts
+        .replace(/[\u2018\u2019]/g, "'") // Smart quotes
+        .replace(/[\u201C\u201D]/g, '"'); // Smart double quotes
+  };
+
   const onSave = async (tab: NavState['tab'], selectedId: string | null, isEditing: boolean) => {
     if (!editFields.name.trim()) return false;
     
@@ -58,13 +67,13 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
     if (tab === 'musicians') { 
       payload.phone = editFields.phone; 
       payload.email = editFields.email; 
-      payload.bio = editFields.bio; 
+      payload.bio = sanitizeText(editFields.bio); 
     }
     if (tab === 'songs') { 
       payload.artist = editFields.artist; 
       payload.vocal_range = editFields.vocalRange || null; 
       payload.key = editFields.songKey || null; 
-      payload.notes = editFields.notes; 
+      payload.notes = sanitizeText(editFields.notes); 
       payload.link = link; 
     }
     if (tab === 'events') { 

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { supabase } from '../supabase';
-import { Band, Musician, Instrument, Song, SetList, Event, Tour, MasterSetList } from '../../shared/models';
+import { Band, Musician, Instrument, Song, SetList, Event, Tour, MasterSetList, EntityDocument } from '../../shared/models';
 
 export const useDataSync = (
   setBands: React.Dispatch<React.SetStateAction<Band[]>>,
@@ -10,7 +10,8 @@ export const useDataSync = (
   setSetlists: React.Dispatch<React.SetStateAction<SetList[]>>,
   setEvents: React.Dispatch<React.SetStateAction<Event[]>>,
   setTours: React.Dispatch<React.SetStateAction<Tour[]>>,
-  setMasterSetlists: React.Dispatch<React.SetStateAction<MasterSetList[]>>
+  setMasterSetlists: React.Dispatch<React.SetStateAction<MasterSetList[]>>,
+  setDocuments: React.Dispatch<React.SetStateAction<EntityDocument[]>>
 ) => {
 
   const syncBandData = useCallback(async () => {
@@ -33,7 +34,8 @@ export const useDataSync = (
       const [
         { data: b }, { data: m }, { data: i }, { data: s }, 
         { data: sl }, { data: e }, { data: t }, { data: ms },
-        { data: bm }, { data: mi }, { data: sls }, { data: esl }, { data: msls }
+        { data: bm }, { data: mi }, { data: sls }, { data: esl }, { data: msls },
+        { data: doc }
       ] = await Promise.all([
         supabase.from('bands').select('*'),
         supabase.from('musicians').select('*'),
@@ -47,7 +49,8 @@ export const useDataSync = (
         supabase.from('musician_instruments').select('*'),
         supabase.from('setlist_songs').select('*, linked_to').order('position'),
         supabase.from('event_setlists').select('*').order('position'),
-        supabase.from('master_setlist_setlists').select('*').order('position')
+        supabase.from('master_setlist_setlists').select('*').order('position'),
+        supabase.from('entity_documents').select('*')
       ]);
 
       setBands((b || []).map(band => ({ ...band, musicians: (bm || []).filter(x => x.band_id === band.id).map(x => x.musician_id) })));
@@ -58,6 +61,7 @@ export const useDataSync = (
       setEvents((e || []).map(event => ({ ...event, tourId: event.tour_id, setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({ id: x.setlist_id || x.master_setlist_id, type: x.setlist_id ? 'setlist' : 'master', position: x.position })) })));
       setTours((t || []).map(tour => ({ ...tour, events: (e || []).filter(event => event.tour_id === tour.id).map(event => event.id) })));
       setMasterSetlists((ms || []).map(msl => ({ ...msl, setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id), eventId: (esl || []).find(x => x.master_setlist_id === msl.id)?.event_id })));
+      setDocuments(doc || []);
     } catch (err) {
       console.error('Failed to load data from Supabase', err);
     }
@@ -101,10 +105,11 @@ export const useDataSync = (
         if (tableName === 'songs') {
             const { data, error } = await supabase.from('songs').select('*');
             if (data) setSongs(data.map(s => ({ ...s, vocalRange: s.vocal_range, key: s.key, vocalists: [] })));
+        } else if (tableName === 'entity_documents') {
+            const { data, error } = await supabase.from('entity_documents').select('*');
+            if (data) setDocuments(data || []);
         } else if (tableName === 'tours') {
             const { data, error } = await supabase.from('tours').select('*');
-            // We need events to map tours fully, but fetchEntity is a quick fallback. 
-            // Better to just call loadAll or a specific sync if tours change.
             await loadAll(); 
         } else if (['bands', 'musicians', 'instruments', 'band_musicians', 'musician_instruments'].includes(tableName)) {
             await syncBandData();
@@ -114,7 +119,7 @@ export const useDataSync = (
     } catch (err) {
         console.error(`[fetchEntity] Failed to fetch ${entityType}:`, err);
     }
-  }, [syncBandData, syncSetlistData, loadAll]);
+  }, [syncBandData, syncSetlistData, loadAll, setSongs, setDocuments]);
 
   return { fetchEntity, loadAll, syncSetlistData, syncBandData };
 };

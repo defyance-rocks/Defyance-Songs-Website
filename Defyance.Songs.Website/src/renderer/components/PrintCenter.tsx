@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Event, MasterSetList, SetList } from '../../shared/models';
 import { theme } from '../styles';
-import { formatDate, isPast, getSetlistLabel } from '../utils';
+import { formatDate, getSetlistLabel } from '../utils';
 
 interface PrintCenterProps {
   events: Event[];
   masterSetlists: MasterSetList[];
   setlists: SetList[];
   styles: { [key: string]: React.CSSProperties };
-  onPrint: (tab: any, id: string) => void;
+  onPrint: (tab: any, id: string, highVis: boolean) => void;
 }
 
 export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists, setlists, styles, onPrint }) => {
@@ -36,7 +36,7 @@ export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists
         return (
           <li key={e.id} style={{ ...styles.listItem, marginBottom: 4 }}>
             <span>{e.name}{e.date ? ` (${formatDate(e.date)})` : ''}</span>
-            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('events', e.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('events', e.id, highVis)}>Print</button>
           </li>
         );
       })}</ul>
@@ -48,7 +48,7 @@ export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists
         return (
           <li key={m.id} style={{ ...styles.listItem, marginBottom: 4 }}>
             <span>{ev ? `[${ev.name}] - ` : ''}{m.name}</span>
-            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('master-setlists', m.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('master-setlists', m.id, highVis)}>Print</button>
           </li>
         );
       })}</ul>
@@ -59,7 +59,7 @@ export const PrintCenter: React.FC<PrintCenterProps> = ({ events, masterSetlists
         return (
           <li key={sl.id} style={{ ...styles.listItem, marginBottom: 4 }}>
             <span>{getSetlistLabel(sl, events, masterSetlists)}</span>
-            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('setlists', sl.id + (highVis ? '?highVis=true' : ''))}>Print</button>
+            <button disabled={!hasContent} style={{ ...styles.button, background: hasContent ? theme.accent : theme.muted, color: '#fff', cursor: hasContent ? 'pointer' : 'default' }} onClick={() => onPrint('setlists', sl.id, highVis)}>Print</button>
           </li>
         );
       })}</ul>

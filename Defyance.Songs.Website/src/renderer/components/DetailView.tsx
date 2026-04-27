@@ -1,6 +1,7 @@
 import React from 'react';
+import { supabase } from '../supabase';
 import { 
-  NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList, AppEntity,
+  NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList, AppEntity, EntityDocument,
   isSong, isMusician, isEvent
 } from '../../shared/models';
 import { theme } from '../styles';
@@ -30,14 +31,57 @@ interface DetailViewProps {
   setDragOverIndex: (index: number | null) => void;
   events: Event[];
   masterSetlists: MasterSetList[];
+  documents: EntityDocument[];
+  onUploadDocument: (type: string, id: string, file: File) => Promise<void>;
+  onDeleteDocument: (docId: string, filePath: string) => Promise<void>;
   readOnly?: boolean;
 }
+
+const ArrowLinkedSVG = () => (
+  <svg viewBox="0 0 24 24" style={{ width: '1.2em', height: '1.2em' }}>
+    <path 
+      d="M19 13l-7 7-7-7m14-8l-7 7-7-7" 
+      stroke="currentColor" 
+      strokeWidth="3" 
+      fill="none" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+    />
+  </svg>
+);
+
+const ArrowUnlinkedSVG = () => (
+  <svg viewBox="0 0 24 24" style={{ width: '1.2em', height: '1.2em', opacity: 0.3 }}>
+    <path 
+      d="M19 13l-7 7-7-7m14-8l-7 7-7-7" 
+      stroke="currentColor" 
+      strokeWidth="3" 
+      fill="currentColor" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+    />
+  </svg>
+);
+
+const cleanText = (txt: string) => {
+  if (!txt) return '';
+  return txt
+    .normalize('NFKD')               // Decompose combined characters
+    .replace(/\u00A0/g, ' ')         // Replace all NBSPs with spaces
+    .replace(/[^\x00-\x7F]/g, (char) => {
+        // Specifically blacklist the Ghost A (0xC2) and related Latin-1 junk, 
+        // but keep common musical symbols if needed.
+        return (char === 'Â' || char.charCodeAt(0) === 194) ? '' : char;
+    })
+    .replace(/\u00C2/g, '');         // Final safety sweep
+};
 
 export const DetailView: React.FC<DetailViewProps> = ({
   tab, item, available, currentRelationships, assignId, assignSearch, 
   draggedIndex, dragOverIndex, styles, onBack, onEdit, onPrint, 
   onAssignIdChange, onAssignSearchChange, onAssign, onUnassign, 
   onMove, onToggleLink, onNavigate, setDraggedIndex, setDragOverIndex, events, masterSetlists,
+  documents, onUploadDocument, onDeleteDocument,
   readOnly = false
 }) => {
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
@@ -52,16 +96,56 @@ export const DetailView: React.FC<DetailViewProps> = ({
           <div><h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>{item.name || ''}</h1><p style={{ color: theme.muted, margin: 0 }}>{tab.toUpperCase()}</p></div>
           <div style={{ display: 'flex', gap: 12 }}>
             {(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (
-              <button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onPrint(null)}>Print View</button>
+              <button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onPrint(item.id)}>Print</button>
             )}
             {!readOnly && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={onEdit}>Edit Details</button>}
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 32 }}>
-          {tab === 'musicians' && (<><div><label style={styles.label}>Email</label><p>{(item as Musician).email || 'N/A'}</p></div><div><label style={styles.label}>Phone</label><p>{(item as Musician).phone || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Bio</label><p>{(item as Musician).bio || 'No bio provided.'}</p></div></>)}
-          {tab === 'songs' && (<><div><label style={styles.label}>Artist</label><p>{(item as Song).artist}</p></div><div><label style={styles.label}>Vocal Range</label><p>{(item as Song).vocalRange || 'N/A'}</p></div><div><label style={styles.label}>Key</label><p>{(item as Song).key || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Notes</label><p>{(item as Song).notes || 'None'}</p></div>{(item as Song).link && <div><label style={styles.label}>Link</label><a href={(item as Song).link || undefined} target="_blank" rel="noreferrer" style={styles.link}>{(item as Song).link}</a></div>}</>)}
+          {tab === 'musicians' && (<><div><label style={styles.label}>Email</label><p>{(item as Musician).email || 'N/A'}</p></div><div><label style={styles.label}>Phone</label><p>{(item as Musician).phone || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Bio</label><p style={{ whiteSpace: 'pre-wrap' }}>{(item as Musician).bio || 'No bio provided.'}</p></div></>)}
+          {tab === 'songs' && (<><div><label style={styles.label}>Artist</label><p>{(item as Song).artist}</p></div><div><label style={styles.label}>Vocal Range</label><p>{(item as Song).vocalRange || 'N/A'}</p></div><div><label style={styles.label}>Key</label><p>{(item as Song).key || 'N/A'}</p></div><div style={{ gridColumn: '1 / -1' }}><label style={styles.label}>Notes</label><p style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{(item as Song).notes || 'None'}</p></div>{(item as Song).link && <div><label style={styles.label}>Link</label><a href={(item as Song).link || undefined} target="_blank" rel="noreferrer" style={styles.link}>{(item as Song).link}</a></div>}</>)}
           {tab === 'events' && (<><div><label style={styles.label}>Location</label><p>{(item as Event).location}</p></div><div><label style={styles.label}>Date</label><p>{(item as Event).date}</p></div><div><label style={styles.label}>Time</label><p>{(item as Event).time}</p></div></>)}
         </div>
+
+        <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 24, marginBottom: 32 }}>
+          <h3 style={styles.subHeading}>Documents & Assets</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+            {documents.filter(d => d.entity_type === tab && d.entity_id === item.id).map(doc => (
+              <div key={doc.id} style={{ background: theme.surfaceAlt, padding: '8px 16px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${theme.border}` }}>
+                <a 
+                  href={supabase.storage.from('documents').getPublicUrl(doc.file_path).data.publicUrl} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  style={{ color: theme.accent, textDecoration: 'none', fontWeight: 600, fontSize: 14 }}
+                >
+                  📄 {doc.name}
+                </a>
+                {!readOnly && (
+                  <button 
+                    onClick={() => onDeleteDocument(doc.id, doc.file_path)}
+                    style={{ background: 'none', border: 'none', color: theme.danger, cursor: 'pointer', fontSize: 16, padding: 0 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            {!readOnly && (
+              <label style={{ background: theme.accent, color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                + Upload Document
+                <input 
+                  type="file" 
+                  style={{ display: 'none' }} 
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onUploadDocument(tab, item.id, file);
+                  }} 
+                />
+              </label>
+            )}
+          </div>
+        </div>
+
         <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 24 }}>
           {!readOnly && (
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
@@ -169,9 +253,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
                           }}
                           onTouchEnd={() => {
                             if (dragOverIndex !== null && index !== dragOverIndex) {
-                              // If dragging DOWN, we want to drop AFTER the target to match visual intuition
-                              const adjustedTarget = (index < dragOverIndex) ? dragOverIndex : dragOverIndex;
-                              onMove(index, 'down', adjustedTarget);
+                              onMove(index, 'down', dragOverIndex);
                             }
                             setDraggedIndex(null);
                             setDragOverIndex(null);
@@ -192,7 +274,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
                       {tab === 'setlists' && !isParent && (
                           <button 
                             disabled={readOnly}
-                            style={{ background: 'transparent', border: 'none', cursor: readOnly ? 'default' : 'pointer', marginRight: 8, fontSize: 20, padding: '8px', opacity: (readOnly && !rel.linked_to) ? 0 : 1 }} 
+                            style={{ background: 'transparent', border: 'none', cursor: readOnly ? 'default' : 'pointer', marginRight: 8, padding: '8px', opacity: (readOnly && !rel.linked_to) ? 0 : 1, display: 'flex', alignItems: 'center', color: rel.linked_to ? theme.accent : theme.muted }} 
                             onClick={(e) => {
                                 if (readOnly) return;
                                 e.stopPropagation();
@@ -200,9 +282,10 @@ export const DetailView: React.FC<DetailViewProps> = ({
                                 onToggleLink(rel.id, rel.linked_to ? null : nextSongId);
                             }}
                           >
-                              {rel.linked_to ? '🔗' : '⛓️'}
+                              {rel.linked_to ? <ArrowLinkedSVG /> : <ArrowUnlinkedSVG />}
                           </button>
                       )}
+
                       <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14 }} onClick={() => onNavigate(rTab, rel.id, false)}>
                         {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.key ? ` • ${rel.key}` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
                       </span>
