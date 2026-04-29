@@ -111,16 +111,21 @@ const App: React.FC = () => {
         const blob = await pdf(doc).toBlob();
         const filename = `${datasets[0].h1.replace(/\s+/g, '_')}.pdf`;
         
-        const file = new File([blob], filename, { type: 'application/pdf' });
-        const url = URL.createObjectURL(file) + `#${filename}`;
-        
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // Upload to Supabase Storage to get a REAL URL (solves Edge/Safari name issues)
+        const { error: uploadError } = await supabase.storage
+            .from('pdfs')
+            .upload(filename, blob, { 
+                contentType: 'application/pdf',
+                upsert: true 
+            });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('pdfs')
+            .getPublicUrl(filename);
+
+        window.open(publicUrl, '_blank');
     } catch (err) {
         console.error('PDF generation failed:', err);
     } finally {
