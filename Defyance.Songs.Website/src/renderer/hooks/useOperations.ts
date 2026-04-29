@@ -1,17 +1,19 @@
 import { supabase } from '../supabase';
-import { NavState, AppEntity, SetList, MasterSetList, Event } from '../../shared/models';
+import { 
+  NavState, AppEntity, SetList, MasterSetList, Event, Band, Musician, Instrument, Song 
+} from '../../shared/models';
 
 export const useOperations = (
-  setBands: React.Dispatch<React.SetStateAction<any[]>>,
-  setMusicians: React.Dispatch<React.SetStateAction<any[]>>,
-  setInstruments: React.Dispatch<React.SetStateAction<any[]>>,
-  setSetlists: React.Dispatch<React.SetStateAction<any[]>>,
-  setMasterSetlists: React.Dispatch<React.SetStateAction<any[]>>,
-  setEvents: React.Dispatch<React.SetStateAction<any[]>>,
+  setBands: React.Dispatch<React.SetStateAction<Band[]>>,
+  setMusicians: React.Dispatch<React.SetStateAction<Musician[]>>,
+  setInstruments: React.Dispatch<React.SetStateAction<Instrument[]>>,
+  setSetlists: React.Dispatch<React.SetStateAction<SetList[]>>,
+  setMasterSetlists: React.Dispatch<React.SetStateAction<MasterSetList[]>>,
+  setEvents: React.Dispatch<React.SetStateAction<Event[]>>,
   loadAll: () => Promise<void>
 ) => {
 
-  const handleSave = async (tab: NavState['tab'], selectedId: string | null, isEditing: boolean, payload: any) => {
+  const handleSave = async (tab: NavState['tab'], selectedId: string | null, isEditing: boolean, payload: Partial<AppEntity>) => {
     const table = tab === 'master-setlists' ? 'master_setlists' : tab;
     const { error } = isEditing && selectedId ? await supabase.from(table).update(payload).eq('id', selectedId) : await supabase.from(table).insert(payload);
     if (error) console.error('Save failed:', error);
@@ -79,7 +81,7 @@ export const useOperations = (
     if (response?.error) console.error('Unassign failed:', response.error);
   };
 
-  const handleMove = async (tab: NavState['tab'], selectedId: string, list: any[], index: number, target: number) => {
+  const handleMove = async (tab: NavState['tab'], selectedId: string, list: (AppEntity & { type?: string })[], index: number, target: number) => {
     const newList = [...list];
     const getChainRange = (idx: number, currentList: any[]) => {
       let start = idx;
@@ -107,9 +109,9 @@ export const useOperations = (
     newList.splice(insertAt, 0, ...itemsToMove);
     const finalNewList = newList;
 
-    if (tab === 'setlists') setSetlists(prev => prev.map(sl => sl.id === selectedId ? {...sl, songs: finalNewList} : sl));
+    if (tab === 'setlists') setSetlists(prev => prev.map(sl => sl.id === selectedId ? {...sl, songs: finalNewList as any} : sl));
     else if (tab === 'master-setlists') setMasterSetlists(prev => prev.map(ms => ms.id === selectedId ? {...ms, setlists: finalNewList.map(s => s.id)} : ms));
-    else if (tab === 'events') setEvents(prev => prev.map(e => e.id === selectedId ? {...e, setLists: finalNewList} : e));
+    else if (tab === 'events') setEvents(prev => prev.map(e => e.id === selectedId ? {...e, setLists: finalNewList as any} : e));
 
     try {
         if (tab === 'setlists') await supabase.rpc('reorder_setlist_songs', { p_setlist_id: selectedId, p_song_ids: finalNewList.map(s => s.id), p_positions: finalNewList.map((_, i) => i) });
@@ -132,27 +134,13 @@ export const useOperations = (
     const filename = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
     const filePath = `${entityType}/${entityId}/${filename}`;
 
-    let uploadBlob: Blob | File = file;
-
-    // Pre-upload scrubbing for text files to kill the Â artifact at the source
-    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-        try {
-            const text = await file.text();
-            const sanitizedText = text
-                .replace(/\u00A0/g, ' ')  // Replace NBSP with standard space
-                .replace(/\u00C2/g, '')   // Remove Ghost A byte
-                .replace(/Â/g, '');        // Final literal safety sweep
-            
-            uploadBlob = new Blob([sanitizedText], { type: 'text/plain; charset=utf-8' });
-        } catch (err) {
-            console.error('[Upload] Pre-scrubbing failed, uploading original:', err);
-        }
-    }
+    // Force charset=utf-8 for text files to prevent the Â issue in browsers
+    const contentType = file.type === 'text/plain' ? 'text/plain; charset=utf-8' : file.type;
 
     const { error: uploadError } = await supabase.storage
         .from('documents')
-        .upload(filePath, uploadBlob, {
-            contentType: uploadBlob.type,
+        .upload(filePath, file, {
+            contentType: contentType,
             cacheControl: '3600',
             upsert: false
         });

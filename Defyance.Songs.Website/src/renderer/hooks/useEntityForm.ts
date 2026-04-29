@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { NavState, Song, Musician, Event } from '../../shared/models';
+import { NavState, Song, Musician, Event, AppEntity } from '../../shared/models';
 import { formatUrl } from '../utils';
 
 export interface EditFields {
@@ -21,14 +21,14 @@ const initialFields: EditFields = {
   name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: ''
 };
 
-export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | null, isEditing: boolean, payload: any) => Promise<void>) => {
+export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | null, isEditing: boolean, payload: Partial<AppEntity>) => Promise<void>) => {
   const [editFields, setEditFields] = useState<EditFields>(initialFields);
 
   const resetFields = useCallback(() => {
     setEditFields(initialFields);
   }, []);
 
-  const populateFields = useCallback((item: any, tab: NavState['tab']) => {
+  const populateFields = useCallback((item: AppEntity | null, tab: NavState['tab']) => {
     if (!item) {
       resetFields();
       return;

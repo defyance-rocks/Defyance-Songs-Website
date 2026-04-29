@@ -26,7 +26,7 @@ export const useDataSync = (
     setBands((b || []).map(band => ({ ...band, musicians: (bm || []).filter(x => x.band_id === band.id).map(x => x.musician_id) })));
     setMusicians((m || []).map(musician => ({ ...musician, instruments: (mi || []).filter(x => x.musician_id === musician.id).map(x => x.instrument_id), bands: (bm || []).filter(x => x.band_id === musician.id).map(x => x.band_id) })));
     setInstruments((i || []).map(inst => ({ ...inst, musicians: (mi || []).filter(x => x.instrument_id === inst.id).map(x => x.musician_id) })));
-  }, []);
+  }, [setBands, setMusicians, setInstruments]);
 
   const loadAll = useCallback(async () => {
     console.log('[Data] Syncing with Supabase...');
@@ -65,7 +65,7 @@ export const useDataSync = (
     } catch (err) {
       console.error('Failed to load data from Supabase', err);
     }
-  }, []);
+  }, [setBands, setMusicians, setInstruments, setSongs, setSetlists, setEvents, setTours, setMasterSetlists, setDocuments]);
 
   const syncSetlistData = useCallback(async () => {
     const [ { data: sl }, { data: e }, { data: ms }, { data: sls }, { data: esl }, { data: msls } ] = await Promise.all([
@@ -79,37 +79,35 @@ export const useDataSync = (
     
     setSetlists((sl || []).map(setlist => ({ 
         ...setlist, 
-        songs: (sls || []).filter((x: any) => x.setlist_id === setlist.id).map((x: any) => ({ id: x.song_id, linked_to: x.linked_to })), 
-        eventId: (esl || []).find((x: any) => x.setlist_id === setlist.id)?.event_id, 
-        masterSetlistId: (msls || []).find((x: any) => x.setlist_id === setlist.id)?.master_setlist_id 
+        songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.song_id, linked_to: x.linked_to })), 
+        eventId: (esl || []).find(x => x.setlist_id === setlist.id)?.event_id, 
+        masterSetlistId: (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id 
     })));
 
     setEvents((e || []).map(event => ({ 
         ...event, 
         tourId: (event as any).tour_id, 
-        setLists: (esl || []).filter((x: any) => x.event_id === event.id).map((x: any) => ({ id: x.setlist_id || x.master_setlist_id, type: x.setlist_id ? 'setlist' : 'master', position: x.position })) 
+        setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({ id: x.setlist_id || x.master_setlist_id, type: x.setlist_id ? 'setlist' : 'master', position: x.position })) 
     })));
 
     setMasterSetlists((ms || []).map(msl => ({ 
         ...msl, 
-        setlists: (msls || []).filter((x: any) => x.master_setlist_id === msl.id).map((x: any) => x.setlist_id), 
-        eventId: (esl || []).find((x: any) => x.master_setlist_id === msl.id)?.event_id 
+        setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id), 
+        eventId: (esl || []).find(x => x.master_setlist_id === msl.id)?.event_id 
     })));
-  }, []);
+  }, [setSetlists, setEvents, setMasterSetlists]);
 
   const fetchEntity = useCallback(async (entityType: string) => {
     try {
         const tableName = entityType === 'masterSetlists' ? 'master_setlists' : entityType;
         
-        // Songs and Tours are relatively "flat" or their complex joins are handled by other syncs
         if (tableName === 'songs') {
-            const { data, error } = await supabase.from('songs').select('*');
+            const { data } = await supabase.from('songs').select('*');
             if (data) setSongs(data.map(s => ({ ...s, vocalRange: s.vocal_range, key: s.key, vocalists: [] })));
         } else if (tableName === 'entity_documents') {
-            const { data, error } = await supabase.from('entity_documents').select('*');
+            const { data } = await supabase.from('entity_documents').select('*');
             if (data) setDocuments(data || []);
         } else if (tableName === 'tours') {
-            const { data, error } = await supabase.from('tours').select('*');
             await loadAll(); 
         } else if (['bands', 'musicians', 'instruments', 'band_musicians', 'musician_instruments'].includes(tableName)) {
             await syncBandData();

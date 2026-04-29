@@ -30,7 +30,7 @@ export const useAppData = () => {
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
 
-    const handleUpdate = (payload: any) => {
+    const handleUpdate = (payload: { table: string }) => {
         const { table } = payload;
         console.log(`[Realtime] Granular change for ${table}:`, payload);
         
@@ -50,7 +50,7 @@ export const useAppData = () => {
 
     const channel = supabase
       .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, handleUpdate)
+      .on('postgres_changes' as any, { event: '*', schema: 'public' }, handleUpdate)
       .subscribe();
 
     return () => {

@@ -1,13 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback, Suspense, lazy } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { NavState, Band, Musician, Instrument, Song, SetList, Event, Tour, MasterSetList, EntityDocument } from '../shared/models';
+import { NavState, Band, Musician, Instrument, Song, SetList, Event, Tour, MasterSetList } from '../shared/models';
 import { theme, getStyles } from './styles';
-import { getSetlistLabel } from './utils';
 import { getCurrentRels } from './utils/relationships';
 import { preparePDFData } from './utils/pdfPrepare';
-import { pdf } from '@react-pdf/renderer';
-import { SetlistPDF } from './components/PDFDocument';
 import { useAppData } from './hooks/useAppData';
 import { useNavigation } from './hooks/useNavigation';
 import { useEntityForm } from './hooks/useEntityForm';
@@ -54,7 +51,6 @@ const App: React.FC = () => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
   
-  // Local search state for immediate typing feedback, synced to URL via debounce
   const [localSearch, setLocalSearch] = useState(search);
   useEffect(() => { setLocalSearch(search); }, [search]);
 
@@ -107,25 +103,9 @@ const App: React.FC = () => {
         const datasets = preparePDFData(printTab, item, songs, setlists, masterSetlists, events, null);
         if (datasets.length === 0) return;
 
-        const doc = <SetlistPDF datasets={datasets} highVis={highVis} />;
-        const blob = await pdf(doc).toBlob();
-        const filename = `${datasets[0].h1.replace(/\s+/g, '_')}.pdf`;
-        
-        // Upload to Supabase Storage to get a REAL URL (solves Edge/Safari name issues)
-        const { error: uploadError } = await supabase.storage
-            .from('pdfs')
-            .upload(filename, blob, { 
-                contentType: 'application/pdf',
-                upsert: true 
-            });
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-            .from('pdfs')
-            .getPublicUrl(filename);
-
-        window.open(publicUrl, '_blank');
+        // Dynamic Import of the PDF generator to fix Webpack bundle size warnings
+        const { generateAndOpenPDF } = await import('./utils/pdfGenerator');
+        await generateAndOpenPDF(datasets, highVis);
     } catch (err) {
         console.error('PDF generation failed:', err);
     } finally {
@@ -135,8 +115,7 @@ const App: React.FC = () => {
 
   const onAssign = async () => {
     if (!selectedId || !assignId) return;
-    const assignId_final = assignId; // Logic for assignId state handled below in the render if needed, but currently in state
-    await handleAssign(tab, selectedId, assignId_final, getItemById(selectedId));
+    await handleAssign(tab, selectedId, assignId, getItemById(selectedId));
     setAssignId(''); setAssignSearch('');
   };
   const [assignId, setAssignId] = useState('');
@@ -259,7 +238,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {!isMobile && (
+      {isMobile && (
         <div style={styles.mobileHeader}>
           <h2 style={{ fontSize: 18, color: theme.accent, margin: 0 }}>Defyance</h2>
           <button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
