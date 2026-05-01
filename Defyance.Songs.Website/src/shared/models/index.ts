@@ -37,6 +37,15 @@ export interface Song {
   notes?: string | null;
   link?: string | null;
   linked_to?: string | null;
+  status: 'Draft' | 'Approved' | string;
+}
+
+export type UserRole = 'admin' | 'band_member' | null;
+
+export interface UserProfile {
+  id: string;
+  role: UserRole;
+  created_at?: string;
 }
 
 export interface SetList {

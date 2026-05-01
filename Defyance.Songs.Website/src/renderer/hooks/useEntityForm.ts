@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { NavState, Song, Musician, Event, AppEntity } from '../../shared/models';
-import { formatUrl } from '../utils';
+import { formatUrl, toTitleCase } from '../utils';
 
 export interface EditFields {
   name: string;
@@ -15,10 +15,11 @@ export interface EditFields {
   location: string;
   date: string;
   time: string;
+  status: string;
 }
 
 const initialFields: EditFields = {
-  name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: ''
+  name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: '', status: 'Draft'
 };
 
 export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | null, isEditing: boolean, payload: Partial<AppEntity>) => Promise<void>) => {
@@ -45,7 +46,8 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
       link: (item as Song).link || '',
       location: (item as Event).location || '',
       date: (item as Event).date || '',
-      time: (item as Event).time || ''
+      time: (item as Event).time || '',
+      status: (item as Song).status || 'Draft'
     });
   }, [resetFields]);
 
@@ -62,7 +64,7 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
     if (!editFields.name.trim()) return false;
     
     const link = formatUrl(editFields.link.trim());
-    const payload: any = { name: editFields.name };
+    const payload: any = { name: toTitleCase(editFields.name.trim()) };
     
     if (tab === 'musicians') { 
       payload.phone = editFields.phone; 
@@ -70,11 +72,12 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
       payload.bio = sanitizeText(editFields.bio); 
     }
     if (tab === 'songs') { 
-      payload.artist = editFields.artist; 
+      payload.artist = toTitleCase(editFields.artist.trim()); 
       payload.vocal_range = editFields.vocalRange || null; 
       payload.key = editFields.songKey || null; 
       payload.notes = sanitizeText(editFields.notes); 
       payload.link = link; 
+      payload.status = editFields.status;
     }
     if (tab === 'events') { 
       payload.location = editFields.location; 

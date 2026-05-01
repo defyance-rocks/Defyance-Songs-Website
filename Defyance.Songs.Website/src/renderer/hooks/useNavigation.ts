@@ -11,7 +11,7 @@ export const useNavigation = () => {
 
   // Parse current state from URL
   const tab = useMemo(() => (params.tab as NavState['tab']) || 'bands', [params.tab]);
-  const selectedId = useMemo(() => params.id || null, [params.id]);
+  const selectedId = useMemo(() => (params.id === 'edit' ? null : params.id) || null, [params.id]);
   const isEditing = useMemo(() => location.pathname.endsWith('/edit') || (tab === 'login'), [location.pathname, tab]);
 
   // Persistent List State

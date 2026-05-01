@@ -2,6 +2,7 @@ import React from 'react';
 import { NavState, Song, Event, SetList, MasterSetList, Tour } from '../../shared/models';
 import { theme } from '../styles';
 import { formatDate, isPast, getSetlistLabel, getMasterSetlistLabel, getEventLabel } from '../utils';
+import { canEditItem, UserRole } from '../utils/auth';
 
 interface ListViewProps {
   tab: NavState['tab'];
@@ -16,12 +17,14 @@ interface ListViewProps {
   onSongFilterKeyChange?: (val: string) => void;
   onNavigate: (tab: NavState['tab'], id: string | null, edit: boolean) => void;
   onDelete: (id: string) => void;
+  onApprove?: (id: string) => void;
   styles: { [key: string]: React.CSSProperties };
   events: Event[];
   tours: Tour[];
   setlists: SetList[];
   masterSetlists: MasterSetList[];
   readOnly?: boolean;
+  userRole?: UserRole;
 }
 
 export const ListView: React.FC<ListViewProps> = ({ 
@@ -29,9 +32,10 @@ export const ListView: React.FC<ListViewProps> = ({
   songSortMode = 'alpha', onSongSortChange, 
   songFilterId = '', onSongFilterChange,
   songFilterKey = '', onSongFilterKeyChange,
-  onNavigate, onDelete, styles, 
+  onNavigate, onDelete, onApprove, styles, 
   events, tours, setlists, masterSetlists,
-  readOnly = false
+  readOnly = false,
+  userRole = null
 }) => {
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
   let filtered = [...data];
@@ -49,6 +53,8 @@ export const ListView: React.FC<ListViewProps> = ({
     if (songFilterId) {
       if (songFilterId === 'unassigned') {
         filtered = filtered.filter(s => !setlists.some(sl => sl.songs.some(sls => sls.id === s.id)));
+      } else if (songFilterId === 'draft') {
+        filtered = filtered.filter(s => s.status !== 'Approved');
       } else {
         const [type, id] = songFilterId.split(':');
         if (type === 'setlist') {
@@ -153,12 +159,14 @@ export const ListView: React.FC<ListViewProps> = ({
     });
   }
 
+  const canCreate = !readOnly && (userRole === 'admin' || (userRole === 'band_member' && tab === 'songs'));
+
   return (
     <div style={styles.card}>
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: tab === 'songs' ? 12 : 0 }}>
           <h2 style={styles.heading}>{tab.toUpperCase()}</h2>
-          {!readOnly && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onNavigate(tab, null, true)}>+ NEW</button>}
+          {canCreate && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={() => onNavigate(tab, null, true)}>+ NEW</button>}
         </div>
         
         {tab === 'songs' && (
@@ -193,6 +201,7 @@ export const ListView: React.FC<ListViewProps> = ({
                 onChange={e => onSongFilterChange?.(e.target.value)}
               >
                 <option value="">All Songs</option>
+                <option value="draft">Draft Songs</option>
                 <option value="unassigned">Unassigned Songs</option>
                 <optgroup label="Master Setlists">
                   {masterSetlists.map(m => {
@@ -232,44 +241,59 @@ export const ListView: React.FC<ListViewProps> = ({
         const subLabel = tab === 'songs' ? `${(item as Song).artist}${ (item as Song).key ? ` • Key: ${(item as Song).key}` : '' }` : '';
 
         const isMobile = window.innerWidth < 768;
+        const canEdit = !readOnly && canEditItem(userRole, tab, item);
+        const isSongDraft = tab === 'songs' && item.status !== 'Approved';
 
         return (
-          <li key={item.id} style={{ ...styles.listItem, opacity: past ? 0.4 : 1 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, cursor: 'pointer' }} onClick={() => onNavigate(tab, item.id, false)}>
-              <span style={{ fontWeight: 500, color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none', fontSize: isMobile ? 16 : 14, minHeight: isMobile ? 24 : 'auto', display: 'flex', alignItems: 'center' }}>
-                {label}{tab === 'songs' && item.vocalRange === 'High' ? '*' : ''}
-              </span>
-              {subLabel && <span style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>{subLabel}</span>}
+          <li key={item.id} style={{ ...styles.listItem, opacity: past ? 0.4 : 1, flexDirection: 'column', alignItems: 'stretch' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, cursor: 'pointer' }} onClick={() => onNavigate(tab, item.id, false)}>
+                    <span style={{ fontWeight: 500, color: past ? theme.muted : theme.textHighlight, textDecoration: past ? 'line-through' : 'none', fontSize: isMobile ? 16 : 14, minHeight: isMobile ? 24 : 'auto', display: 'flex', alignItems: 'center' }}>
+                        {label}{tab === 'songs' && item.vocalRange === 'High' ? '*' : ''}
+                    </span>
+                    {subLabel && <span style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>{subLabel}</span>}
+                    {isSongDraft && <span style={{ ...styles.badge, background: theme.surface, color: theme.muted, width: 'fit-content', marginTop: 4 }}>DRAFT</span>}
+                </div>
+                
+                {isMobile && !readOnly ? (
+                    <button 
+                        style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 12px', minWidth: 44, minHeight: 44 }}
+                        onClick={() => setActiveMenuId(activeMenuId === item.id ? null : item.id)}
+                    >
+                        {activeMenuId === item.id ? '✕' : '⋮'}
+                    </button>
+                ) : (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        {canEdit && <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>}
+                        {canEdit && <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>}
+                    </div>
+                )}
             </div>
-            
-            {isMobile && !readOnly ? (
-              <button 
-                style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 12px', minWidth: 44, minHeight: 44 }}
-                onClick={() => setActiveMenuId(item.id)}
-              >
-                ⋮
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
-                {!readOnly && <button style={{ ...styles.button, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onNavigate(tab, item.id, true)}>Edit</button>}
-                {!readOnly && <button style={{ ...styles.button, background: theme.danger, color: '#fff' }} onClick={() => onDelete(item.id)}>Delete</button>}
-              </div>
-            )}
 
             {activeMenuId === item.id && (
-              <div style={styles.menuOverlay} onClick={() => setActiveMenuId(null)}>
-                <div style={styles.menuContent} onClick={e => e.stopPropagation()}>
-                  <div style={{ padding: '0 24px 16px 24px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight }}>{label}</div>
-                  <div style={styles.menuItem} onClick={() => { onNavigate(tab, item.id, true); setActiveMenuId(null); }}>
-                    <span style={{ fontSize: 20 }}>✏️</span> Edit Details
+              <div style={{ background: theme.surface, borderRadius: 8, marginTop: 8, border: `1px solid ${theme.border}`, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight, fontSize: 14 }}>{label}</div>
+                  <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onNavigate(tab, item.id, false); setActiveMenuId(null); }}>
+                    <span style={{ fontSize: 18 }}>👁️</span> View Details
                   </div>
-                  <div style={{ ...styles.menuItem, color: theme.danger }} onClick={() => { onDelete(item.id); setActiveMenuId(null); }}>
-                    <span style={{ fontSize: 20 }}>🗑️</span> Delete Item
+                  {canEdit && (
+                    <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onNavigate(tab, item.id, true); setActiveMenuId(null); }}>
+                      <span style={{ fontSize: 18 }}>✏️</span> Edit Details
+                    </div>
+                  )}
+                  {tab === 'songs' && item.status !== 'Approved' && userRole === 'admin' && (
+                    <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, color: theme.success }} onClick={() => { onApprove?.(item.id); setActiveMenuId(null); }}>
+                        <span style={{ fontSize: 18 }}>✅</span> Approve Song
+                    </div>
+                  )}
+                  {canEdit && (
+                    <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, color: theme.danger }} onClick={() => { onDelete(item.id); setActiveMenuId(null); }}>
+                      <span style={{ fontSize: 18 }}>🗑️</span> Delete Item
+                    </div>
+                  )}
+                  <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted }} onClick={() => setActiveMenuId(null)}>
+                    Close
                   </div>
-                  <div style={{ ...styles.menuItem, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted, marginTop: 8 }} onClick={() => setActiveMenuId(null)}>
-                    Cancel
-                  </div>
-                </div>
               </div>
             )}
           </li>

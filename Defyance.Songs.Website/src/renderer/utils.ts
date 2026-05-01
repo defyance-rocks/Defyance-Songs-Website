@@ -2,6 +2,15 @@ import { Song, SetList, Event, Tour, MasterSetList } from '../shared/models';
 
 export const formatUrl = (u: string) => (!u || u.startsWith('http') ? u : `https://${u}`);
 
+export const toTitleCase = (str: string) => {
+    if (!str) return '';
+    return str
+        .toLowerCase()
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+};
+
 export const formatDate = (d: string) => { 
   if (!d) return ''; 
   const [y, m, day] = d.split('-'); 

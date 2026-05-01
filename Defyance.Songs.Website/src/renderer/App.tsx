@@ -10,6 +10,7 @@ import { useNavigation } from './hooks/useNavigation';
 import { useEntityForm } from './hooks/useEntityForm';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
+import { canEditItem, canAddFiles, canDeleteDocument, UserRole } from './utils/auth';
 
 const ListView = lazy(() => import('./components/ListView').then(m => ({ default: m.ListView })));
 const DetailView = lazy(() => import('./components/DetailView').then(m => ({ default: m.DetailView })));
@@ -18,7 +19,32 @@ const PrintCenter = lazy(() => import('./components/PrintCenter').then(m => ({ d
 
 const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
+  const [userRole, setUserRole] = useState<UserRole>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+
+  const fetchRole = async (userId: string) => {
+    const { data, error } = await supabase.from('profiles').select('role').eq('id', userId).single();
+    if (error) {
+      console.error('Error fetching role:', error);
+      setUserRole(null);
+    } else {
+      setUserRole(data.role as UserRole);
+    }
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) fetchRole(session.user.id);
+      setLoadingSession(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) fetchRole(session.user.id);
+      else setUserRole(null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -34,17 +60,6 @@ const App: React.FC = () => {
   } = useNavigation();
 
   const { editFields, setEditFields, populateFields, onSave: formSave } = useEntityForm(dbSave);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoadingSession(false);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
 
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -98,16 +113,37 @@ const App: React.FC = () => {
 
   const onPrint = useCallback(async (printTab: string, id: string | null, highVis: boolean = false) => {
     setIsGeneratingPDF(true);
+    // Open window IMMEDIATELY to avoid popup blockers
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+        printWindow.document.write('<html><body style="background:#0f1217;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h2>Generating PDF...</h2></body></html>');
+    }
+
     try {
-        const item = getItemById(id || selectedId);
-        const datasets = preparePDFData(printTab, item, songs, setlists, masterSetlists, events, null);
-        if (datasets.length === 0) return;
+        let item = getItemById(id || selectedId);
+        let activePrintId = null;
+
+        // If we are printing a specific setlist/master from an event/tour context
+        if (printTab === 'events' || printTab === 'tours') {
+            if (id && id !== selectedId) {
+                activePrintId = id;
+                // Main item should be the parent (Event/Tour) to preserve header context
+                item = getItemById(selectedId);
+            }
+        }
+
+        const datasets = preparePDFData(printTab, item, songs, setlists, masterSetlists, events, activePrintId);
+        if (datasets.length === 0) {
+            if (printWindow) printWindow.close();
+            return;
+        }
 
         // Dynamic Import of the PDF generator to fix Webpack bundle size warnings
         const { generateAndOpenPDF } = await import('./utils/pdfGenerator');
-        await generateAndOpenPDF(datasets, highVis);
+        await generateAndOpenPDF(datasets, highVis, printWindow);
     } catch (err) {
         console.error('PDF generation failed:', err);
+        if (printWindow) printWindow.close();
     } finally {
         setIsGeneratingPDF(false);
     }
@@ -189,6 +225,9 @@ const App: React.FC = () => {
     if (tab === 'tours') return tours; return [];
   };
 
+  const currentItem = getItemById(selectedId);
+  const canEditCurrent = canEditItem(userRole, tab, currentItem);
+
   if (loadingSession) return <div style={{ background: theme.background, color: theme.text, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading...</div>;
 
   const isReadOnly = !session;
@@ -260,35 +299,72 @@ const App: React.FC = () => {
                 <PrintCenter events={events} masterSetlists={masterSetlists} setlists={setlists} styles={styles} onPrint={onPrint} />
               ) : (
                 isEditing || selectedId ? (
-                  isEditing && !isReadOnly ? (
-                    <FormView tab={tab} selectedId={selectedId} editName={editFields.name} editPhone={editFields.phone} editEmail={editFields.email} editBio={editFields.bio} editArtist={editFields.artist} editVocalRange={editFields.vocalRange} editKey={editFields.songKey} editNotes={editFields.notes} editLink={editFields.link} editLocation={editFields.location} editDate={editFields.date} editTime={editFields.time} firstInputRef={firstInputRef} styles={styles} onBack={handleBack} onSave={onSave} setEditName={(v) => setEditFields({...editFields, name: v})} setEditPhone={(v) => setEditFields({...editFields, phone: v})} setEditEmail={(v) => setEditFields({...editFields, email: v})} setEditBio={(v) => setEditFields({...editFields, bio: v})} setEditArtist={(v) => setEditFields({...editFields, artist: v})} setEditVocalRange={(v) => setEditFields({...editFields, vocalRange: v as any})} setEditKey={(v) => setEditFields({...editFields, songKey: v})} setEditNotes={(v) => setEditFields({...editFields, notes: v})} setEditLink={(v) => setEditFields({...editFields, link: v})} setEditLocation={(v) => setEditFields({...editFields, location: v})} setEditDate={(v) => setEditFields({...editFields, date: v})} setEditTime={(v) => setEditFields({...editFields, time: v})} />
-                  ) : (() => {
-                    const item = getItemById(selectedId);
-                    return item ? (
-                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => navigateTo(tab, selectedId, true)} onPrint={(id) => onPrint(tab, id || selectedId)} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId, linkedTo) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} documents={documents} onUploadDocument={handleUploadDocument} onDeleteDocument={handleDeleteDocument} readOnly={isReadOnly} />
-                    ) : <div style={{ color: theme.muted, padding: 20 }}>Item not found.</div>;
-                  })()
-                ) : (
-                  <ListView 
-                    tab={tab} 
-                    data={getData()} 
-                    songsSearch={localSearch} 
-                    onSearchChange={setLocalSearch} 
-                    songSortMode={sort as any}
-                    onSongSortChange={(s) => setListState({ s })}
-                    songFilterId={filter}
-                    onSongFilterChange={(f) => setListState({ f })}
-                    songFilterKey={filterKey}
-                    onSongFilterKeyChange={(k) => setListState({ k })}
-                    onNavigate={navigateTo} 
-                    onDelete={(id) => handleDelete(tab, id)} 
-                    styles={styles} 
-                    events={events} 
-                    tours={tours} 
-                    setlists={setlists} 
-                    masterSetlists={masterSetlists} 
-                    readOnly={isReadOnly}
-                  />
+                  isEditing && canEditCurrent ? (
+                    <FormView 
+                      tab={tab} 
+                      selectedId={selectedId} 
+                      editName={editFields.name} 
+                      editPhone={editFields.phone} 
+                      editEmail={editFields.email} 
+                      editBio={editFields.bio} 
+                      editArtist={editFields.artist} 
+                      editVocalRange={editFields.vocalRange} 
+                      editKey={editFields.songKey} 
+                      editNotes={editFields.notes} 
+                      editLink={editFields.link} 
+                      editLocation={editFields.location} 
+                      editDate={editFields.date} 
+                      editTime={editFields.time} 
+                      editStatus={editFields.status}
+                      isUserAdmin={userRole === 'admin'}
+                      firstInputRef={firstInputRef} 
+                      styles={styles} 
+                      onBack={handleBack} 
+                      onSave={onSave} 
+                      setEditName={(v: string) => setEditFields({...editFields, name: v})} 
+                      setEditPhone={(v: string) => setEditFields({...editFields, phone: v})} 
+                      setEditEmail={(v: string) => setEditFields({...editFields, email: v})} 
+                      setEditBio={(v: string) => setEditFields({...editFields, bio: v})} 
+                      setEditArtist={(v: string) => setEditFields({...editFields, artist: v})} 
+                      setEditVocalRange={(v: string) => setEditFields({...editFields, vocalRange: v as any})} 
+                      setEditKey={(v: string) => setEditFields({...editFields, songKey: v})} 
+                      setEditNotes={(v: string) => setEditFields({...editFields, notes: v})} 
+                      setEditLink={(v: string) => setEditFields({...editFields, link: v})} 
+                      setEditLocation={(v: string) => setEditFields({...editFields, location: v})} 
+                      setEditDate={(v: string) => setEditFields({...editFields, date: v})} 
+                      setEditTime={(v: string) => setEditFields({...editFields, time: v})} 
+                      setEditStatus={(v: string) => setEditFields({...editFields, status: v})}
+                      />
+                      ) : (() => {
+                      const item = currentItem;
+                      return item ? (
+                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => navigateTo(tab, selectedId, true)} onPrint={(id: string | null) => onPrint(tab, id || selectedId)} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId: string, linkedTo: string | null) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} documents={documents} onUploadDocument={handleUploadDocument} onDeleteDocument={handleDeleteDocument} onApprove={(id: string) => dbSave('songs', id, true, { status: 'Approved' })} userRole={userRole} />
+                      ) : <div style={{ color: theme.muted, padding: 20 }}>Item not found.</div>;
+                      })()
+                      ) : (
+                      <ListView 
+                      tab={tab} 
+                      data={getData()} 
+                      songsSearch={localSearch} 
+                      onSearchChange={setLocalSearch} 
+                      songSortMode={sort as any}
+                      onSongSortChange={(s: any) => setListState({ s })}
+                      songFilterId={filter}
+                      onSongFilterChange={(f: string) => setListState({ f })}
+                      songFilterKey={filterKey}
+                      onSongFilterKeyChange={(k: string) => setListState({ k })}
+                      onNavigate={navigateTo} 
+                      onDelete={(id: string) => handleDelete(tab, id)} 
+                      onApprove={(id: string) => dbSave('songs', id, true, { status: 'Approved' })}
+                      styles={styles} 
+                      events={events} 
+                      tours={tours} 
+                      setlists={setlists} 
+                      masterSetlists={masterSetlists} 
+                      readOnly={isReadOnly}
+                      userRole={userRole}
+                      />
+
                 )
               )
             )}

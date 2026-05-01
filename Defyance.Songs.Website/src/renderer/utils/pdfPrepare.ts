@@ -57,8 +57,14 @@ export const preparePDFData = (
 
   if (tab === 'events') {
     const ev = item as Event;
-    const isDated = !!ev.date;
-    const targetSetLists = activePrintId ? ev.setLists.filter(e => e.id === activePrintId) : ev.setLists;
+    // If item is null or not an event (e.g. called with setlist id but tab 'events'), 
+    // try to find the event from the events list as a fallback
+    const actualEvent = ev?.setLists ? ev : events.find(e => e.id === (item as any)?.id);
+    
+    if (!actualEvent) return [];
+
+    const isDated = !!actualEvent.date;
+    const targetSetLists = activePrintId ? actualEvent.setLists.filter(e => e.id === activePrintId) : actualEvent.setLists;
     
     return targetSetLists.map(e => {
         const sl = e.type === 'setlist' ? setlists.find(s => s.id === e.id) : masterSetlists.find(m => m.id === e.id);
@@ -73,7 +79,13 @@ export const preparePDFData = (
                 if (sll) sToP.push(...getSongData(sll.songs));
             });
         }
-        return { songs: sToP, h1: ev.name, h2: sl.name, h3: isDated ? formatDate(ev.date) : undefined, isDated };
+        return { 
+            songs: sToP, 
+            h1: actualEvent.name, 
+            h2: sl.name, 
+            h3: isDated ? formatDate(actualEvent.date) : undefined, 
+            isDated 
+        };
     }).filter(Boolean) as PDFDataset[];
   }
 

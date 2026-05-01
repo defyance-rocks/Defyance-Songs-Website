@@ -2,10 +2,11 @@ import React from 'react';
 import { supabase } from '../supabase';
 import { 
   NavState, Band, Musician, Song, SetList, Event, Tour, MasterSetList, AppEntity, EntityDocument,
-  isSong, isMusician, isEvent
+  isSong, isMusician, isEvent, UserRole
 } from '../../shared/models';
 import { theme } from '../styles';
 import { formatDate, isPast, getSetlistLabel, getMasterSetlistLabel } from '../utils';
+import { canEditItem, canAddFiles, canDeleteDocument } from '../utils/auth';
 
 interface DetailViewProps {
   tab: NavState['tab'];
@@ -34,7 +35,8 @@ interface DetailViewProps {
   documents: EntityDocument[];
   onUploadDocument: (type: string, id: string, file: File) => Promise<void>;
   onDeleteDocument: (docId: string, filePath: string) => Promise<void>;
-  readOnly?: boolean;
+  onApprove?: (id: string) => void;
+  userRole?: UserRole;
 }
 
 const ArrowLinkedSVG = () => (
@@ -81,24 +83,41 @@ export const DetailView: React.FC<DetailViewProps> = ({
   draggedIndex, dragOverIndex, styles, onBack, onEdit, onPrint, 
   onAssignIdChange, onAssignSearchChange, onAssign, onUnassign, 
   onMove, onToggleLink, onNavigate, setDraggedIndex, setDragOverIndex, events, masterSetlists,
-  documents, onUploadDocument, onDeleteDocument,
-  readOnly = false
+  documents, onUploadDocument, onDeleteDocument, onApprove,
+  userRole = null
 }) => {
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
 
   if (!item) return <div style={{ maxWidth: 900 }}><button style={styles.backBtn} onClick={onBack}>← Back</button><p>Item not found.</p></div>;
+
+  const canEdit = canEditItem(userRole, tab, item);
+  const canAddFile = canAddFiles(userRole, tab);
+  const canDeleteFile = canDeleteDocument(userRole, tab, item);
 
   return (
     <div style={{ maxWidth: 900 }}>
       <button style={styles.backBtn} onClick={onBack}>← Back</button>
       <div style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-          <div><h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>{item.name || ''}</h1><p style={{ color: theme.muted, margin: 0 }}>{tab.toUpperCase()}</p></div>
+          <div>
+            <h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>
+              {item.name || ''}
+              {tab === 'songs' && ((item as Song).status === 'Approved' ? (
+                <span style={{ ...styles.badge, background: theme.success, marginLeft: 12, fontSize: 12, verticalAlign: 'middle', color: '#fff' }}>APPROVED</span>
+              ) : (
+                <span style={{ ...styles.badge, background: theme.surfaceAlt, color: theme.muted, marginLeft: 12, fontSize: 12, verticalAlign: 'middle' }}>DRAFT</span>
+              ))}
+            </h1>
+            <p style={{ color: theme.muted, margin: 0 }}>{tab.toUpperCase()}</p>
+          </div>
           <div style={{ display: 'flex', gap: 12 }}>
             {(['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && (
               <button style={{ ...styles.button, background: theme.surfaceAlt, color: theme.text, border: `1px solid ${theme.border}` }} onClick={() => onPrint(item.id)}>Print</button>
             )}
-            {!readOnly && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={onEdit}>Edit Details</button>}
+            {tab === 'songs' && (item as Song).status !== 'Approved' && userRole === 'admin' && (
+                <button style={{ ...styles.button, background: theme.success, color: '#fff' }} onClick={() => onApprove?.(item.id)}>Approve</button>
+            )}
+            {canEdit && <button style={{ ...styles.button, background: theme.accent, color: '#fff' }} onClick={onEdit}>Edit Details</button>}
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 32 }}>
@@ -120,7 +139,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
                 >
                   📄 {doc.name}
                 </a>
-                {!readOnly && (
+                {canDeleteFile && (
                   <button 
                     onClick={() => onDeleteDocument(doc.id, doc.file_path)}
                     style={{ background: 'none', border: 'none', color: theme.danger, cursor: 'pointer', fontSize: 16, padding: 0 }}
@@ -130,7 +149,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
                 )}
               </div>
             ))}
-            {!readOnly && (
+            {canAddFile && (
               <label style={{ background: theme.accent, color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
                 + Upload Document
                 <input 
@@ -147,7 +166,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
         </div>
 
         <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 24 }}>
-          {!readOnly && (
+          {canEdit && (
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <input style={{ ...styles.input, marginBottom: 0, flex: 2 }} placeholder="Search to assign..." value={assignSearch} onChange={e => onAssignSearchChange(e.target.value)} />
               <select style={{ ...styles.input, marginBottom: 0, flex: 3 }} value={assignId} onChange={e => onAssignIdChange(e.target.value)}>
@@ -218,18 +237,18 @@ export const DetailView: React.FC<DetailViewProps> = ({
 
                 const isLinkedToNext = list[index + 1] && rel.linked_to === list[index + 1].id;
                 const isLinkedFromPrev = list[index - 1] && list[index - 1].linked_to === rel.id;
-                const canMoveUp = !readOnly && !isParent && index > 0 && !isLinkedFromPrev;
-                const canMoveDown = !readOnly && !isParent && index < list.length - 1 && !isLinkedToNext;
+                const canMoveUp = canEdit && !isParent && index > 0 && !isLinkedFromPrev;
+                const canMoveDown = canEdit && !isParent && index < list.length - 1 && !isLinkedToNext;
 
                 const isMobile = window.innerWidth < 768;
-                const showReorder = !readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab);
+                const showReorder = canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab);
 
                 return (
                   <li 
                     key={`${rel.type || 'single'}:${rel.id || index}:${index}`} 
                     data-index={index}
-                    style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s', userSelect: 'none', WebkitUserSelect: 'none' }} 
-                    draggable={!isMobile && (!readOnly && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} 
+                    style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s', userSelect: 'none', WebkitUserSelect: 'none', flexDirection: 'column', alignItems: 'stretch' }} 
+                    draggable={!isMobile && (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} 
                     onDragStart={() => setDraggedIndex(index)} 
                     onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} 
                     onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} 
@@ -273,10 +292,10 @@ export const DetailView: React.FC<DetailViewProps> = ({
 
                       {tab === 'setlists' && !isParent && (
                           <button 
-                            disabled={readOnly}
-                            style={{ background: 'transparent', border: 'none', cursor: readOnly ? 'default' : 'pointer', marginRight: 8, padding: '8px', opacity: (readOnly && !rel.linked_to) ? 0 : 1, display: 'flex', alignItems: 'center', color: rel.linked_to ? theme.accent : theme.muted }} 
+                            disabled={!canEdit}
+                            style={{ background: 'transparent', border: 'none', cursor: !canEdit ? 'default' : 'pointer', marginRight: 8, padding: '8px', opacity: (!canEdit && !rel.linked_to) ? 0 : 1, display: 'flex', alignItems: 'center', color: rel.linked_to ? theme.accent : theme.muted }} 
                             onClick={(e) => {
-                                if (readOnly) return;
+                                if (!canEdit) return;
                                 e.stopPropagation();
                                 const nextSongId = list[index + 1]?.id || null;
                                 onToggleLink(rel.id, rel.linked_to ? null : nextSongId);
@@ -289,44 +308,42 @@ export const DetailView: React.FC<DetailViewProps> = ({
                       <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14 }} onClick={() => onNavigate(rTab, rel.id, false)}>
                         {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.key ? ` • ${rel.key}` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
                       </span>
+                      
+                      {isMobile ? (
+                        <button 
+                            style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 8px', minWidth: 44, minHeight: 44 }}
+                            onClick={() => setActiveMenuId(activeMenuId === rel.id ? null : rel.id)}
+                        >
+                            {activeMenuId === rel.id ? '✕' : '⋮'}
+                        </button>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {tab === 'events' && !isParent && (
+                            <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
+                            )}
+                            {canEdit && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
+                        </div>
+                      )}
                     </div>                    
-                    
-                    {isMobile ? (
-                      <button 
-                        style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 8px', minWidth: 44, minHeight: 44 }}
-                        onClick={() => setActiveMenuId(rel.id)}
-                      >
-                        ⋮
-                      </button>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        {tab === 'events' && !isParent && (
-                          <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
-                        )}
-                        {!readOnly && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
-                      </div>
-                    )}
 
                     {activeMenuId === rel.id && (
-                      <div style={styles.menuOverlay} onClick={() => setActiveMenuId(null)}>
-                        <div style={styles.menuContent} onClick={e => e.stopPropagation()}>
-                          <div style={{ padding: '0 24px 16px 24px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight }}>{label}</div>
-                          <div style={styles.menuItem} onClick={() => { onNavigate(rTab, rel.id, false); setActiveMenuId(null); }}>
-                            <span style={{ fontSize: 20 }}>👁️</span> View Details
+                      <div style={{ background: theme.surface, borderRadius: 8, marginTop: 8, border: `1px solid ${theme.border}`, overflow: 'hidden' }}>
+                        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight, fontSize: 14 }}>{label}</div>
+                        <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onNavigate(rTab, rel.id, false); setActiveMenuId(null); }}>
+                          <span style={{ fontSize: 18 }}>👁️</span> View Details
+                        </div>
+                        {tab === 'events' && !isParent && (
+                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onPrint(rel.id); setActiveMenuId(null); }}>
+                            <span style={{ fontSize: 18 }}>🖨️</span> Print Setlist
                           </div>
-                          {tab === 'events' && !isParent && (
-                            <div style={styles.menuItem} onClick={() => { onPrint(rel.id); setActiveMenuId(null); }}>
-                              <span style={{ fontSize: 20 }}>🖨️</span> Print Setlist
-                            </div>
-                          )}
-                          {!readOnly && (
-                            <div style={{ ...styles.menuItem, color: theme.danger }} onClick={() => { onUnassign(rel.id, rel.type); setActiveMenuId(null); }}>
-                              <span style={{ fontSize: 20 }}>❌</span> Remove Relationship
-                            </div>
-                          )}
-                          <div style={{ ...styles.menuItem, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted, marginTop: 8 }} onClick={() => setActiveMenuId(null)}>
-                            Cancel
+                        )}
+                        {canEdit && (
+                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, color: theme.danger }} onClick={() => { onUnassign(rel.id, rel.type); setActiveMenuId(null); }}>
+                            <span style={{ fontSize: 18 }}>❌</span> Remove Relationship
                           </div>
+                        )}
+                        <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted }} onClick={() => setActiveMenuId(null)}>
+                          Close
                         </div>
                       </div>
                     )}
