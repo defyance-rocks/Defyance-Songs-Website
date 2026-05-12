@@ -51,7 +51,7 @@ const App: React.FC = () => {
   const { 
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists, documents,
     handleSave: dbSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink,
-    handleUploadDocument, handleDeleteDocument, loadAll
+    handleUploadDocument, handleDeleteDocument, loadAll, handleAddMarker, handleUpdateMarker
   } = useAppData();
 
   const {
@@ -105,7 +105,7 @@ const App: React.FC = () => {
   }, [session, tab, handleBack]);
 
   const onSave = async () => {
-    const success = await formSave(tab, selectedId, isEditing);
+    const success = await formSave(tab, selectedId, isEditing, songs, events, tours, instruments);
     if (success) {
       handleBack();
     }
@@ -126,9 +126,14 @@ const App: React.FC = () => {
         // If we are printing a specific setlist/master from an event/tour context
         if (printTab === 'events' || printTab === 'tours') {
             if (id && id !== selectedId) {
-                activePrintId = id;
-                // Main item should be the parent (Event/Tour) to preserve header context
-                item = getItemById(selectedId);
+                if (selectedId) {
+                  activePrintId = id;
+                  // Main item should be the parent (Event/Tour) to preserve header context
+                  item = getItemById(selectedId);
+                } else {
+                  // If no selectedId (Print Center), treat the passed id as the event/tour itself
+                  item = getItemById(id);
+                }
             }
         }
 
@@ -316,6 +321,7 @@ const App: React.FC = () => {
                       editDate={editFields.date} 
                       editTime={editFields.time} 
                       editStatus={editFields.status}
+                      editFontSize={editFields.fontSize}
                       isUserAdmin={userRole === 'admin'}
                       firstInputRef={firstInputRef} 
                       styles={styles} 
@@ -334,11 +340,12 @@ const App: React.FC = () => {
                       setEditDate={(v: string) => setEditFields({...editFields, date: v})} 
                       setEditTime={(v: string) => setEditFields({...editFields, time: v})} 
                       setEditStatus={(v: string) => setEditFields({...editFields, status: v})}
+                      setEditFontSize={(v: any) => setEditFields({...editFields, fontSize: v})}
                       />
                       ) : (() => {
                       const item = currentItem;
                       return item ? (
-                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => navigateTo(tab, selectedId, true)} onPrint={(id: string | null) => onPrint(tab, id || selectedId)} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId: string, linkedTo: string | null) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} events={events} masterSetlists={masterSetlists} documents={documents} onUploadDocument={handleUploadDocument} onDeleteDocument={handleDeleteDocument} onApprove={(id: string) => dbSave('songs', id, true, { status: 'Approved' })} userRole={userRole} />
+                      <DetailView tab={tab} item={item} available={getAvailable().filter((a: any) => (a.name && a.name.toLowerCase().includes(assignSearch.toLowerCase())) || (a.artist && a.artist.toLowerCase().includes(assignSearch.toLowerCase())))} currentRelationships={getCurrentRels(item, tab, musicians, instruments, songs, setlists, events, tours, masterSetlists) || []} assignId={assignId} assignSearch={assignSearch} draggedIndex={draggedIndex} dragOverIndex={dragOverIndex} styles={styles} onBack={handleBack} onEdit={() => navigateTo(tab, selectedId, true)} onPrint={(id: string | null) => onPrint(tab, id || selectedId)} onAssignIdChange={setAssignId} onAssignSearchChange={setAssignSearch} onAssign={onAssign} onUnassign={onUnassign} onMove={onMove} onToggleLink={(songId: string, linkedTo: string | null) => toggleLink(selectedId!, songId, linkedTo)} onNavigate={navigateTo} setDraggedIndex={setDraggedIndex} setDragOverIndex={setDragOverIndex} onAddMarker={(label: string) => handleAddMarker(selectedId!, label, (item as SetList).songs.length)} onUpdateMarker={handleUpdateMarker} events={events} masterSetlists={masterSetlists} documents={documents} onUploadDocument={handleUploadDocument} onDeleteDocument={handleDeleteDocument} onApprove={(id: string) => dbSave('songs', id, true, { status: 'Approved' })} userRole={userRole} />
                       ) : <div style={{ color: theme.muted, padding: 20 }}>Item not found.</div>;
                       })()
                       ) : (

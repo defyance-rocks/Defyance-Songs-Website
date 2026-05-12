@@ -21,9 +21,9 @@ export const useAppData = () => {
 
   const { 
     handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink, 
-    handleUploadDocument, handleDeleteDocument 
+    handleUploadDocument, handleDeleteDocument, handleAddMarker, handleUpdateMarker
   } = useOperations(
-    setBands, setMusicians, setInstruments, setSetlists, setMasterSetlists, setEvents, loadAll
+    setBands, setMusicians, setInstruments, setSetlists, setMasterSetlists, setEvents, loadAll, setlists
   );
 
   // Realtime subscription
@@ -36,7 +36,7 @@ export const useAppData = () => {
         
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            if (['setlist_songs', 'event_setlists', 'master_setlist_setlists'].includes(table)) {
+            if (['setlist_items', 'event_setlists', 'master_setlist_setlists', 'setlists'].includes(table)) {
                 syncSetlistData();
             } else if (['band_musicians', 'musician_instruments'].includes(table)) {
                 syncBandData();
@@ -66,6 +66,6 @@ export const useAppData = () => {
 
   return {
     bands, musicians, instruments, songs, setlists, events, tours, masterSetlists, documents,
-    loadAll, handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink, handleUploadDocument, handleDeleteDocument
+    loadAll, handleSave, handleDelete, handleAssign, handleUnassign, handleMove, toggleLink, handleUploadDocument, handleDeleteDocument, handleAddMarker, handleUpdateMarker
   };
 };

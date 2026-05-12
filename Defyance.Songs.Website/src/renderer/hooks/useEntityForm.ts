@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { NavState, Song, Musician, Event, AppEntity } from '../../shared/models';
+import { NavState, Song, Musician, Event, AppEntity, Tour, Instrument } from '../../shared/models';
 import { formatUrl, toTitleCase } from '../utils';
 
 export interface EditFields {
@@ -16,10 +16,11 @@ export interface EditFields {
   date: string;
   time: string;
   status: string;
+  fontSize: 'small' | 'medium' | 'large';
 }
 
 const initialFields: EditFields = {
-  name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: '', status: 'Draft'
+  name: '', phone: '', email: '', bio: '', artist: '', vocalRange: '', songKey: '', notes: '', link: '', location: '', date: '', time: '', status: 'Draft', fontSize: 'small'
 };
 
 export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | null, isEditing: boolean, payload: Partial<AppEntity>) => Promise<void>) => {
@@ -47,7 +48,8 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
       location: (item as Event).location || '',
       date: (item as Event).date || '',
       time: (item as Event).time || '',
-      status: (item as Song).status || 'Draft'
+      status: (item as Song).status || 'Draft',
+      fontSize: (item as any).font_size || 'small'
     });
   }, [resetFields]);
 
@@ -60,9 +62,40 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
         .replace(/[\u201C\u201D]/g, '"'); // Smart double quotes
   };
 
-  const onSave = async (tab: NavState['tab'], selectedId: string | null, isEditing: boolean) => {
+  const onSave = async (
+    tab: NavState['tab'], 
+    selectedId: string | null, 
+    isEditing: boolean,
+    songs: Song[],
+    events: Event[],
+    tours: Tour[],
+    instruments: Instrument[]
+  ) => {
     if (!editFields.name.trim()) return false;
     
+    // Duplicate checks
+    const nameLower = editFields.name.trim().toLowerCase();
+    if (!isEditing) {
+        if (tab === 'songs') {
+            const artistLower = editFields.artist.trim().toLowerCase();
+            if (songs.some(s => s.name.toLowerCase() === nameLower && s.artist.toLowerCase() === artistLower)) {
+                alert('A song with this name and artist already exists.');
+                return false;
+            }
+        } else if (tab === 'events') {
+            if (events.some(e => e.name.toLowerCase() === nameLower && e.date === editFields.date)) {
+                alert('An event with this name and date already exists.');
+                return false;
+            }
+        } else if (tab === 'tours' && tours.some(t => t.name.toLowerCase() === nameLower)) {
+            alert('A tour with this name already exists.');
+            return false;
+        } else if (tab === 'instruments' && instruments.some(i => i.name.toLowerCase() === nameLower)) {
+            alert('An instrument with this name already exists.');
+            return false;
+        }
+    }
+
     const link = formatUrl(editFields.link.trim());
     const payload: any = { name: toTitleCase(editFields.name.trim()) };
     
@@ -83,6 +116,9 @@ export const useEntityForm = (handleSave: (tab: NavState['tab'], id: string | nu
       payload.location = editFields.location; 
       payload.date = editFields.date || null; 
       payload.time = editFields.time || null; 
+    }
+    if (tab === 'setlists') {
+      payload.font_size = editFields.fontSize;
     }
 
     await handleSave(tab, selectedId, isEditing, payload);

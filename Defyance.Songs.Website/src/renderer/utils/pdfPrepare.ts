@@ -2,11 +2,12 @@ import { Song, SetList, MasterSetList, Event, AppEntity } from '../../shared/mod
 import { formatDate } from '../utils';
 
 export interface PDFDataset {
-  songs: Song[];
+  songs: (Song & { label?: string | null })[];
   h1: string;
   h2?: string;
   h3?: string;
   isDated: boolean;
+  fontSize?: 'small' | 'medium' | 'large';
 }
 
 export const preparePDFData = (
@@ -20,11 +21,14 @@ export const preparePDFData = (
 ): PDFDataset[] => {
   if (!item) return [];
 
-  const getSongData = (songsList: {id: string, linked_to?: string | null}[]) => {
+  const getSongData = (songsList: any[]) => {
     return songsList.map(s => {
-        const so = songs.find(x => x.id === s.id);
+        if (s.label) {
+            return { id: s.id, name: s.label, artist: '', status: 'Approved', label: s.label };
+        }
+        const so = songs.find(x => x.id === s.song_id || x.id === s.id);
         return so ? {...so, linked_to: s.linked_to} : null;
-    }).filter(Boolean) as Song[];
+    }).filter(Boolean) as (Song & { label?: string | null })[];
   };
 
   if (tab === 'setlists' || tab === 'printouts') {
@@ -34,7 +38,7 @@ export const preparePDFData = (
     const h1 = ev ? ev.name : sl.name;
     const h2 = ev ? sl.name : undefined;
     const h3 = ev?.date ? formatDate(ev.date) : undefined;
-    return [{ songs: getSongData(sl.songs), h1, h2, h3, isDated }];
+    return [{ songs: getSongData(sl.songs), h1, h2, h3, isDated, fontSize: sl.font_size as any }];
   }
 
   if (tab === 'master-setlists') {
@@ -42,16 +46,21 @@ export const preparePDFData = (
     const ev = events.find(e => e.id === msl.eventId);
     const isDated = !!ev?.date;
     const allSongs: Song[] = [];
-    msl.setlists.forEach(slId => {
+    let firstFontSize: any = 'small';
+    msl.setlists.forEach((slId, idx) => {
         const sl = setlists.find(s => s.id === slId);
-        if (sl) allSongs.push(...getSongData(sl.songs));
+        if (sl) {
+            if (idx === 0) firstFontSize = sl.font_size;
+            allSongs.push(...getSongData(sl.songs));
+        }
     });
     return [{ 
         songs: allSongs, 
         h1: ev ? ev.name : msl.name, 
         h2: ev ? msl.name : undefined, 
         h3: ev?.date ? formatDate(ev.date) : undefined, 
-        isDated 
+        isDated,
+        fontSize: firstFontSize
     }];
   }
 
@@ -71,12 +80,17 @@ export const preparePDFData = (
         if (!sl) return null;
         
         let sToP: Song[] = [];
+        let fontSize: any = 'small';
         if (e.type === 'setlist') {
             sToP = getSongData((sl as SetList).songs);
+            fontSize = (sl as SetList).font_size;
         } else {
-            (sl as MasterSetList).setlists.forEach(id => {
+            (sl as MasterSetList).setlists.forEach((id, idx) => {
                 const sll = setlists.find(s => s.id === id);
-                if (sll) sToP.push(...getSongData(sll.songs));
+                if (sll) {
+                  if (idx === 0) fontSize = sll.font_size;
+                  sToP.push(...getSongData(sll.songs));
+                }
             });
         }
         return { 
@@ -84,7 +98,8 @@ export const preparePDFData = (
             h1: actualEvent.name, 
             h2: sl.name, 
             h3: isDated ? formatDate(actualEvent.date) : undefined, 
-            isDated 
+            isDated,
+            fontSize
         };
     }).filter(Boolean) as PDFDataset[];
   }

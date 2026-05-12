@@ -1,4 +1,5 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyPlugin = require('copy-webpack-plugin');
 const path = require('path');
 const webpack = require('webpack');
 require('dotenv').config();
@@ -59,6 +60,11 @@ module.exports = {
     }),
     new HtmlWebpackPlugin({
       template: './src/renderer/index.html',
+    }),
+    new CopyPlugin({
+      patterns: [
+        { from: 'src/renderer/public', to: '.' },
+      ],
     }),
   ],
   devServer: {

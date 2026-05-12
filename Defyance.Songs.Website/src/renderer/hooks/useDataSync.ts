@@ -47,7 +47,7 @@ export const useDataSync = (
         supabase.from('master_setlists').select('*'),
         supabase.from('band_musicians').select('*'),
         supabase.from('musician_instruments').select('*'),
-        supabase.from('setlist_songs').select('*, linked_to').order('position'),
+        supabase.from('setlist_items').select('*').order('position'),
         supabase.from('event_setlists').select('*').order('position'),
         supabase.from('master_setlist_setlists').select('*').order('position'),
         supabase.from('entity_documents').select('*')
@@ -57,7 +57,7 @@ export const useDataSync = (
       setMusicians((m || []).map(musician => ({ ...musician, instruments: (mi || []).filter(x => x.musician_id === musician.id).map(x => x.instrument_id), bands: (bm || []).filter(x => x.band_id === musician.id).map(x => x.band_id) })));
       setInstruments((i || []).map(inst => ({ ...inst, musicians: (mi || []).filter(x => x.instrument_id === inst.id).map(x => x.musician_id) })));
       setSongs((s || []).map(song => ({ ...song, vocalRange: song.vocal_range, key: song.key, vocalists: [] })));
-      setSetlists((sl || []).map(setlist => ({ ...setlist, songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.song_id, linked_to: x.linked_to })), eventId: (esl || []).find(x => x.setlist_id === setlist.id)?.event_id, masterSetlistId: (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id })));
+      setSetlists((sl || []).map(setlist => ({ ...setlist, songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.id, song_id: x.song_id, label: x.label, linked_to: x.linked_to, setlist_id: x.setlist_id, position: x.position })), eventId: (esl || []).find(x => x.setlist_id === setlist.id)?.event_id, masterSetlistId: (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id })));
       setEvents((e || []).map(event => ({ ...event, tourId: event.tour_id, setLists: (esl || []).filter(x => x.event_id === event.id).map(x => ({ id: x.setlist_id || x.master_setlist_id, type: x.setlist_id ? 'setlist' : 'master', position: x.position })) })));
       setTours((t || []).map(tour => ({ ...tour, events: (e || []).filter(event => event.tour_id === tour.id).map(event => event.id) })));
       setMasterSetlists((ms || []).map(msl => ({ ...msl, setlists: (msls || []).filter(x => x.master_setlist_id === msl.id).map(x => x.setlist_id), eventId: (esl || []).find(x => x.master_setlist_id === msl.id)?.event_id })));
@@ -72,14 +72,14 @@ export const useDataSync = (
       supabase.from('setlists').select('*'),
       supabase.from('events').select('*'),
       supabase.from('master_setlists').select('*'),
-      supabase.from('setlist_songs').select('*, linked_to').order('position'),
+      supabase.from('setlist_items').select('*').order('position'),
       supabase.from('event_setlists').select('*').order('position'),
       supabase.from('master_setlist_setlists').select('*').order('position')
     ]);
     
     setSetlists((sl || []).map(setlist => ({ 
         ...setlist, 
-        songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.song_id, linked_to: x.linked_to })), 
+        songs: (sls || []).filter(x => x.setlist_id === setlist.id).map(x => ({ id: x.id, song_id: x.song_id, label: x.label, linked_to: x.linked_to, setlist_id: x.setlist_id, position: x.position })), 
         eventId: (esl || []).find(x => x.setlist_id === setlist.id)?.event_id, 
         masterSetlistId: (msls || []).find(x => x.setlist_id === setlist.id)?.master_setlist_id 
     })));
@@ -111,7 +111,7 @@ export const useDataSync = (
             await loadAll(); 
         } else if (['bands', 'musicians', 'instruments', 'band_musicians', 'musician_instruments'].includes(tableName)) {
             await syncBandData();
-        } else if (['setlists', 'events', 'master_setlists', 'setlist_songs', 'event_setlists', 'master_setlist_setlists'].includes(tableName)) {
+        } else if (['setlists', 'events', 'master_setlists', 'setlist_items', 'event_setlists', 'master_setlist_setlists'].includes(tableName)) {
             await syncSetlistData();
         }
     } catch (err) {

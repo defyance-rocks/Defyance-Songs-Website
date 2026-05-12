@@ -30,6 +30,8 @@ interface DetailViewProps {
   onNavigate: (tab: NavState['tab'], id: string, edit: boolean) => void;
   setDraggedIndex: (index: number | null) => void;
   setDragOverIndex: (index: number | null) => void;
+  onAddMarker: (label: string) => void;
+  onUpdateMarker: (itemId: string, label: string) => Promise<void>;
   events: Event[];
   masterSetlists: MasterSetList[];
   documents: EntityDocument[];
@@ -82,13 +84,60 @@ export const DetailView: React.FC<DetailViewProps> = ({
   tab, item, available, currentRelationships, assignId, assignSearch, 
   draggedIndex, dragOverIndex, styles, onBack, onEdit, onPrint, 
   onAssignIdChange, onAssignSearchChange, onAssign, onUnassign, 
-  onMove, onToggleLink, onNavigate, setDraggedIndex, setDragOverIndex, events, masterSetlists,
+  onMove, onToggleLink, onNavigate, setDraggedIndex, setDragOverIndex, onAddMarker, onUpdateMarker, events, masterSetlists,
   documents, onUploadDocument, onDeleteDocument, onApprove,
   userRole = null
 }) => {
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
+  const [editingMarkerId, setEditingMarkerId] = React.useState<string | null>(null);
+  const [editMarkerText, setEditMarkerText] = React.useState('');
+
+  const scrollVelocity = React.useRef(0);
+  const scrollAnimationFrame = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    const performScroll = () => {
+      if (scrollVelocity.current !== 0) {
+        window.scrollBy(0, scrollVelocity.current);
+      }
+      scrollAnimationFrame.current = requestAnimationFrame(performScroll);
+    };
+    
+    scrollAnimationFrame.current = requestAnimationFrame(performScroll);
+    return () => {
+      if (scrollAnimationFrame.current) cancelAnimationFrame(scrollAnimationFrame.current);
+    };
+  }, []);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    const threshold = 120; // Pixels from top/bottom to start scrolling
+    const { clientY } = e;
+    const { innerHeight } = window;
+
+    if (clientY < threshold) {
+      scrollVelocity.current = -Math.max(2, (threshold - clientY) / 3);
+    } else if (clientY > innerHeight - threshold) {
+      scrollVelocity.current = Math.max(2, (clientY - (innerHeight - threshold)) / 3);
+    } else {
+      scrollVelocity.current = 0;
+    }
+  };
 
   if (!item) return <div style={{ maxWidth: 900 }}><button style={styles.backBtn} onClick={onBack}>← Back</button><p>Item not found.</p></div>;
+
+  const handleMarkerEdit = (id: string, currentLabel: string) => {
+    if (!canEdit) return;
+    setEditingMarkerId(id);
+    setEditMarkerText(currentLabel);
+  };
+
+  const handleMarkerSave = async () => {
+    if (editingMarkerId && editMarkerText.trim()) {
+      await onUpdateMarker(editingMarkerId, editMarkerText.trim());
+    }
+    setEditingMarkerId(null);
+  };
 
   const canEdit = canEditItem(userRole, tab, item);
   const canAddFile = canAddFiles(userRole, tab);
@@ -101,7 +150,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
           <div>
             <h1 style={{ ...styles.heading, fontSize: 28, marginBottom: 4 }}>
-              {item.name || ''}
+              {tab === 'setlists' ? getSetlistLabel(item as SetList, events, masterSetlists) : (item.name || '')}
               {tab === 'songs' && ((item as Song).status === 'Approved' ? (
                 <span style={{ ...styles.badge, background: theme.success, marginLeft: 12, fontSize: 12, verticalAlign: 'middle', color: '#fff' }}>APPROVED</span>
               ) : (
@@ -185,6 +234,32 @@ export const DetailView: React.FC<DetailViewProps> = ({
             </div>
           )}
 
+          {canEdit && tab === 'setlists' && (
+            <div style={{ display: 'flex', gap: 12, marginBottom: 24, padding: 12, background: theme.surfaceAlt, borderRadius: 8, border: `1px solid ${theme.border}`, alignItems: 'center' }}>
+               <span style={{ fontSize: 14, color: theme.muted, fontWeight: 600 }}>INTERLUDES:</span>
+               <select 
+                 style={{ ...styles.input, marginBottom: 0, flex: 1, maxWidth: 300 }}
+                 onChange={(e) => {
+                   if (e.target.value === 'custom') {
+                     const val = window.prompt('Enter interlude text (e.g. Band Intro):');
+                     if (val) onAddMarker(val);
+                   } else if (e.target.value) {
+                     onAddMarker(e.target.value);
+                   }
+                   e.target.value = '';
+                 }}
+               >
+                 <option value="">+ Add Interlude / Marker...</option>
+                 <option value="Band Intro">Band Intro</option>
+                 <option value="Venue Plug">Venue Plug</option>
+                 <option value="Tour Plug">Tour Plug</option>
+                 <option value="Intermission">Intermission</option>
+                 <option value="Thank You / Goodnight">Thank You / Goodnight</option>
+                 <option value="custom">Custom...</option>
+               </select>
+            </div>
+          )}
+
           {(() => {
             const parents = currentRelationships.filter(r => r.type?.startsWith('parent-'));
             const children = currentRelationships.filter(r => !r.type?.startsWith('parent-'));
@@ -200,157 +275,202 @@ export const DetailView: React.FC<DetailViewProps> = ({
               return 'Children';
             };
 
-            const renderRelList = (list: any[], isParent: boolean) => (
-              <ul style={styles.list}>{list.map((rel: any, index: number) => {
-                const isTourTab = tab === 'tours'; const past = isTourTab && isPast((rel as Event).date);
-                
-                let label = rel.name || '';
-                if (rel.type === 'parent-event') label = `Assigned to Event: ${rel.name}`;
-                else if (rel.type === 'parent-master') label = `Assigned to Master: ${rel.name}`;
-                else if (rel.type === 'parent-tour') label = `Assigned to Tour: ${rel.name}`;
-                else if (isTourTab) label = `${rel.name} (${formatDate((rel as Event).date)})`;
-                else if (tab === 'songs') label = getSetlistLabel(rel as SetList, events, masterSetlists);
-                else if (tab === 'events') {
-                  if (rel.type === 'setlist') label = getSetlistLabel(rel as SetList, events, masterSetlists);
-                  else label = getMasterSetlistLabel(rel as MasterSetList, events) + ' (Master)';
-                }
+            const renderRelList = (list: any[], isParent: boolean) => {
+              let runningWeight = 0;
+              const size = (item as SetList).font_size || 'small';
+              const threshold = size === 'large' ? 10 : (size === 'medium' ? 14 : 18);
 
-                const getRTab = (): NavState['tab'] => {
-                  if (rel.type === 'master' || rel.type === 'parent-master') return 'master-setlists';
-                  if (rel.type === 'setlist' || rel.type === 'parent-event') return 'setlists';
-                  if (rel.type === 'parent-tour') return 'tours';
+              return (
+                <ul style={styles.list}>{list.map((rel: any, index: number) => {
+                  const isTourTab = tab === 'tours'; const past = isTourTab && isPast((rel as Event).date);
                   
-                  if (tab === 'bands') return 'musicians';
-                  if (tab === 'musicians') return 'instruments';
-                  if (tab === 'instruments') return 'musicians';
-                  if (tab === 'songs') return 'setlists';
-                  if (tab === 'setlists') return 'songs';
-                  if (tab === 'master-setlists') return 'setlists';
-                  if (tab === 'events') return rel.type === 'master' ? 'master-setlists' : 'setlists';
-                  if (tab === 'tours') return 'events';
-                  return tab as NavState['tab'];
-                };
-                const rTab = getRTab();
+                  let label = rel.name || '';
+                  if (rel.type === 'parent-event') label = `Assigned to Event: ${rel.name}`;
+                  else if (rel.type === 'parent-master') label = `Assigned to Master: ${rel.name}`;
+                  else if (rel.type === 'parent-tour') label = `Assigned to Tour: ${rel.name}`;
+                  else if (isTourTab) label = `${rel.name} (${formatDate((rel as Event).date)})`;
+                  else if (tab === 'songs') label = getSetlistLabel(rel as SetList, events, masterSetlists);
+                  else if (tab === 'events') {
+                    if (rel.type === 'setlist') label = getSetlistLabel(rel as SetList, events, masterSetlists);
+                    else label = getMasterSetlistLabel(rel as MasterSetList, events) + ' (Master)';
+                  }
 
-                const isRelSong = (tab === 'setlists' || tab === 'events') && !rel.type;
-                const hasHigh = isRelSong && rel.vocalRange === 'High';
+                  const getRTab = (): NavState['tab'] => {
+                    if (rel.type === 'master' || rel.type === 'parent-master') return 'master-setlists';
+                    if (rel.type === 'setlist' || rel.type === 'parent-event') return 'setlists';
+                    if (rel.type === 'parent-tour') return 'tours';
+                    
+                    if (tab === 'bands') return 'musicians';
+                    if (tab === 'musicians') return 'instruments';
+                    if (tab === 'instruments') return 'musicians';
+                    if (tab === 'songs') return 'setlists';
+                    if (tab === 'setlists') return 'songs';
+                    if (tab === 'master-setlists') return 'setlists';
+                    if (tab === 'events') return rel.type === 'master' ? 'master-setlists' : 'setlists';
+                    if (tab === 'tours') return 'events';
+                    return tab as NavState['tab'];
+                  };
+                  const rTab = getRTab();
 
-                const isLinkedToNext = list[index + 1] && rel.linked_to === list[index + 1].id;
-                const isLinkedFromPrev = list[index - 1] && list[index - 1].linked_to === rel.id;
-                const canMoveUp = canEdit && !isParent && index > 0 && !isLinkedFromPrev;
-                const canMoveDown = canEdit && !isParent && index < list.length - 1 && !isLinkedToNext;
+                  const isRelSong = (tab === 'setlists' || tab === 'events') && !rel.type;
+                  const hasHigh = isRelSong && rel.vocalRange === 'High';
 
-                const isMobile = window.innerWidth < 768;
-                const showReorder = canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab);
+                  const isLinkedToNext = list[index + 1] && rel.linked_to === list[index + 1].id;
+                  const isLinkedFromPrev = list[index - 1] && list[index - 1].linked_to === rel.id;
+                  const canMoveUp = canEdit && !isParent && index > 0 && !isLinkedFromPrev;
+                  const canMoveDown = canEdit && !isParent && index < list.length - 1 && !isLinkedToNext;
 
-                return (
-                  <li 
-                    key={`${rel.type || 'single'}:${rel.id || index}:${index}`} 
-                    data-index={index}
-                    style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s', userSelect: 'none', WebkitUserSelect: 'none', flexDirection: 'column', alignItems: 'stretch' }} 
-                    draggable={!isMobile && (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab))} 
-                    onDragStart={() => setDraggedIndex(index)} 
-                    onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} 
-                    onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} 
-                    onDrop={e => { e.preventDefault(); if (draggedIndex !== null && draggedIndex !== index) onMove(draggedIndex, 'down', index); setDraggedIndex(null); setDragOverIndex(null); }} 
-                    onDragEnter={e => { e.preventDefault(); setDragOverIndex(index); }} 
-                    onDragLeave={() => setDragOverIndex(null)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-                      {showReorder && (
-                        <div 
-                          className="reorder-handle"
-                          onTouchStart={() => setDraggedIndex(index)}
-                          onTouchMove={(e) => {
-                            const touch = e.touches[0];
-                            const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                            const li = el?.closest('li');
-                            if (li) {
-                              const idx = parseInt(li.getAttribute('data-index') || '-1');
-                              if (idx !== -1 && idx !== index) setDragOverIndex(idx);
-                            }
-                          }}
-                          onTouchEnd={() => {
-                            if (dragOverIndex !== null && index !== dragOverIndex) {
-                              onMove(index, 'down', dragOverIndex);
-                            }
-                            setDraggedIndex(null);
-                            setDragOverIndex(null);
-                          }}
-                          style={{ fontSize: 24, color: theme.muted, cursor: 'grab', padding: '0 8px', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
-                        >
-                          ⣿
-                        </div>
-                      )}
-                      
-                      {!isMobile && showReorder && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <button style={{ background: 'transparent', border: 'none', color: !canMoveUp ? theme.muted : theme.accent, cursor: !canMoveUp ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'up')} disabled={!canMoveUp}>▲</button>
-                          <button style={{ background: 'transparent', border: 'none', color: !canMoveDown ? theme.muted : theme.accent, cursor: !canMoveDown ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'down')} disabled={!canMoveDown}>▼</button>
-                        </div>
-                      )}
+                  const isMobile = window.innerWidth < 768;
+                  const isMarker = rel.type === 'marker';
+                  const showReorder = canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab);
 
-                      {tab === 'setlists' && !isParent && (
-                          <button 
-                            disabled={!canEdit}
-                            style={{ background: 'transparent', border: 'none', cursor: !canEdit ? 'default' : 'pointer', marginRight: 8, padding: '8px', opacity: (!canEdit && !rel.linked_to) ? 0 : 1, display: 'flex', alignItems: 'center', color: rel.linked_to ? theme.accent : theme.muted }} 
-                            onClick={(e) => {
-                                if (!canEdit) return;
-                                e.stopPropagation();
-                                const nextSongId = list[index + 1]?.id || null;
-                                onToggleLink(rel.id, rel.linked_to ? null : nextSongId);
+                  const itemWeight = isMarker ? 0.65 : 1.0;
+                  runningWeight += itemWeight;
+                  
+                  let showPageBreak = false;
+                  if (tab === 'setlists' && !isParent && runningWeight >= threshold && index < list.length - 1) {
+                    showPageBreak = true;
+                    runningWeight = 0;
+                  }
+
+                  return (
+                    <React.Fragment key={`${rel.type || 'single'}:${rel.id || index}:${index}`}>
+                      <li 
+                        data-index={index}
+                        style={{ ...styles.listItem, opacity: draggedIndex === index ? 0.5 : (past ? 0.4 : 1), cursor: (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) ? 'grab' : 'default', borderTop: dragOverIndex === index && draggedIndex !== index ? `2px solid ${theme.accent}` : styles.listItem.borderTop, transition: 'border 0.1s', userSelect: 'none', WebkitUserSelect: 'none', flexDirection: 'column', alignItems: 'stretch', ...(isMarker ? { background: theme.surface, borderStyle: 'dashed', borderColor: theme.accent } : {}) }} 
+                        draggable={!isMobile && (canEdit && !isParent && ['setlists', 'master-setlists', 'events', 'tours'].includes(tab)) && editingMarkerId !== rel.id} 
+                        onDragStart={() => setDraggedIndex(index)} 
+                        onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }} 
+                        onDragOver={e => { e.preventDefault(); setDragOverIndex(index); }} 
+                        onDrop={e => { e.preventDefault(); if (draggedIndex !== null && draggedIndex !== index) onMove(draggedIndex, 'down', index); setDraggedIndex(null); setDragOverIndex(null); }} 
+                        onDragEnter={e => { e.preventDefault(); setDragOverIndex(index); }} 
+                        onDragLeave={() => setDragOverIndex(null)}
+                      >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                        {showReorder && (
+                          <div 
+                            className="reorder-handle"
+                            onTouchStart={() => setDraggedIndex(index)}
+                            onTouchMove={(e) => {
+                              const touch = e.touches[0];
+                              const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                              const li = el?.closest('li');
+                              if (li) {
+                                const idx = parseInt(li.getAttribute('data-index') || '-1');
+                                if (idx !== -1 && idx !== index) setDragOverIndex(idx);
+                              }
                             }}
+                            onTouchEnd={() => {
+                              if (dragOverIndex !== null && index !== dragOverIndex) {
+                                onMove(index, 'down', dragOverIndex);
+                              }
+                              setDraggedIndex(null);
+                              setDragOverIndex(null);
+                            }}
+                            style={{ fontSize: 24, color: theme.muted, cursor: 'grab', padding: '0 8px', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
                           >
-                              {rel.linked_to ? <ArrowLinkedSVG /> : <ArrowUnlinkedSVG />}
-                          </button>
-                      )}
+                            ⣿
+                          </div>
+                        )}
+                        
+                        {!isMobile && showReorder && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <button style={{ background: 'transparent', border: 'none', color: !canMoveUp ? theme.muted : theme.accent, cursor: !canMoveUp ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'up')} disabled={!canMoveUp}>▲</button>
+                            <button style={{ background: 'transparent', border: 'none', color: !canMoveDown ? theme.muted : theme.accent, cursor: !canMoveDown ? 'default' : 'pointer', padding: 0, fontSize: 10 }} onClick={() => onMove(index, 'down')} disabled={!canMoveDown}>▼</button>
+                          </div>
+                        )}
 
-                      <span style={{ ...styles.link, color: past ? theme.muted : theme.accent, textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14 }} onClick={() => onNavigate(rTab, rel.id, false)}>
-                        {label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.key ? ` • ${rel.key}` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}
-                      </span>
-                      
-                      {isMobile ? (
-                        <button 
-                            style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 8px', minWidth: 44, minHeight: 44 }}
-                            onClick={() => setActiveMenuId(activeMenuId === rel.id ? null : rel.id)}
+                        {tab === 'setlists' && !isParent && (
+                            <button 
+                              disabled={!canEdit || isMarker}
+                              style={{ background: 'transparent', border: 'none', cursor: (!canEdit || isMarker) ? 'default' : 'pointer', marginRight: 8, padding: '8px', opacity: ((!canEdit || isMarker) && !rel.linked_to) ? 0 : 1, display: 'flex', alignItems: 'center', color: rel.linked_to ? theme.accent : theme.muted }} 
+                              onClick={(e) => {
+                                  if (!canEdit || isMarker) return;
+                                  e.stopPropagation();
+                                  const nextSongId = list[index + 1]?.id || null;
+                                  onToggleLink(rel.id, rel.linked_to ? null : nextSongId);
+                              }}
+                            >
+                                {rel.linked_to ? <ArrowLinkedSVG /> : <ArrowUnlinkedSVG />}
+                            </button>
+                        )}
+
+                        <span 
+                          style={{ ...styles.link, color: isMarker ? theme.textHighlight : (past ? theme.muted : theme.accent), textDecoration: past ? 'line-through' : 'none', flex: 1, fontSize: isMobile ? 16 : 14, fontWeight: isMarker ? 'bold' : 'normal', cursor: isMarker ? 'default' : 'pointer', display: 'flex', alignItems: 'center' }} 
+                          onClick={() => {
+                            if (isMarker) handleMarkerEdit(rel.id, rel.label || rel.name);
+                            else onNavigate(rTab, rel.song_id || rel.id, false);
+                          }}
                         >
-                            {activeMenuId === rel.id ? '✕' : '⋮'}
-                        </button>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            {tab === 'events' && !isParent && (
-                            <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
-                            )}
-                            {canEdit && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
+                          {isMarker && '📣 '}
+                          {editingMarkerId === rel.id ? (
+                            <input
+                              autoFocus
+                              style={{ ...styles.input, marginBottom: 0, padding: '4px 8px', fontSize: 14, flex: 1 }}
+                              value={editMarkerText}
+                              onChange={(e) => setEditMarkerText(e.target.value)}
+                              onBlur={handleMarkerSave}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleMarkerSave();
+                                if (e.key === 'Escape') setEditingMarkerId(null);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <>{label}{hasHigh ? '*' : ''} {rel.artist ? `(${rel.artist})` : ''} {rel.key ? ` • ${rel.key}` : ''} {rel.type === 'master' ? <span style={styles.badge}>MASTER</span> : ''}</>
+                          )}
+                        </span>
+                        
+                        {isMobile ? (
+                          <button 
+                              style={{ ...styles.button, background: 'transparent', color: theme.text, fontSize: 24, padding: '0 8px', minWidth: 44, minHeight: 44 }}
+                              onClick={() => setActiveMenuId(activeMenuId === rel.id ? null : rel.id)}
+                          >
+                              {activeMenuId === rel.id ? '✕' : '⋮'}
+                          </button>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 8 }}>
+                              {tab === 'events' && !isParent && (
+                              <button style={{ ...styles.button, background: 'transparent', color: theme.accent, border: `1px solid ${theme.accent}` }} onClick={() => onPrint(rel.id)} title="Print this setlist">Print</button>
+                              )}
+                              {canEdit && <button style={{ ...styles.button, background: 'transparent', color: theme.danger, border: `1px solid ${theme.danger}` }} onClick={() => onUnassign(rel.id, rel.type)}>Remove</button>}
+                          </div>
+                        )}
+                      </div>                    
+
+                      {activeMenuId === rel.id && (
+                        <div style={{ background: theme.surface, borderRadius: 8, marginTop: 8, border: `1px solid ${theme.border}`, overflow: 'hidden' }}>
+                          <div style={{ padding: '12px 16px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight, fontSize: 14 }}>{label}</div>
+                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onNavigate(rTab, rel.song_id || rel.id, false); setActiveMenuId(null); }}>
+                            <span style={{ fontSize: 18 }}>👁️</span> View Details
+                          </div>
+                          {tab === 'events' && !isParent && (
+                            <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onPrint(rel.id); setActiveMenuId(null); }}>
+                              <span style={{ fontSize: 18 }}>🖨️</span> Print Setlist
+                            </div>
+                          )}
+                          {canEdit && (
+                            <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, color: theme.danger }} onClick={() => { onUnassign(rel.id, rel.type); setActiveMenuId(null); }}>
+                              <span style={{ fontSize: 18 }}>❌</span> Remove Relationship
+                            </div>
+                          )}
+                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted }} onClick={() => setActiveMenuId(null)}>
+                            Close
+                          </div>
                         </div>
                       )}
-                    </div>                    
-
-                    {activeMenuId === rel.id && (
-                      <div style={{ background: theme.surface, borderRadius: 8, marginTop: 8, border: `1px solid ${theme.border}`, overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${theme.border}`, fontWeight: 600, color: theme.textHighlight, fontSize: 14 }}>{label}</div>
-                        <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onNavigate(rTab, rel.id, false); setActiveMenuId(null); }}>
-                          <span style={{ fontSize: 18 }}>👁️</span> View Details
-                        </div>
-                        {tab === 'events' && !isParent && (
-                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14 }} onClick={() => { onPrint(rel.id); setActiveMenuId(null); }}>
-                            <span style={{ fontSize: 18 }}>🖨️</span> Print Setlist
-                          </div>
-                        )}
-                        {canEdit && (
-                          <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, color: theme.danger }} onClick={() => { onUnassign(rel.id, rel.type); setActiveMenuId(null); }}>
-                            <span style={{ fontSize: 18 }}>❌</span> Remove Relationship
-                          </div>
-                        )}
-                        <div style={{ ...styles.menuItem, padding: '12px 16px', fontSize: 14, borderTop: `1px solid ${theme.border}`, justifyContent: 'center', color: theme.muted }} onClick={() => setActiveMenuId(null)}>
-                          Close
-                        </div>
+                    </li>
+                    {showPageBreak && (
+                      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 0', gap: 12 }}>
+                        <div style={{ flex: 1, height: 1, background: theme.border, borderTop: `1px dashed ${theme.muted}` }} />
+                        <span style={{ fontSize: 10, color: theme.muted, fontWeight: 'bold', letterSpacing: 1 }}>PAGE BREAK</span>
+                        <div style={{ flex: 1, height: 1, background: theme.border, borderTop: `1px dashed ${theme.muted}` }} />
                       </div>
                     )}
-                  </li>
+                  </React.Fragment>
                 );
               })}</ul>
-            );
+            );};
 
             return (<>
               {parents.length > 0 && (

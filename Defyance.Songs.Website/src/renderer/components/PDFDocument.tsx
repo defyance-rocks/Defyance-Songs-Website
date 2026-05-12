@@ -128,12 +128,12 @@ const truncateToWord = (text: string, isDated: boolean, hasArrow: boolean) => {
 };
 
 interface PDFDataset {
-
   songs: Song[];
   h1: string;
   h2?: string;
   h3?: string;
   isDated: boolean;
+  fontSize?: 'small' | 'medium' | 'large';
 }
 
 interface PDFDocumentProps {
@@ -145,6 +145,23 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
   const docTitle = datasets[0]?.h1 || 'Setlist';
   const bandName = "Defyance";
 
+  const getDynamicStyles = (size: 'small' | 'medium' | 'large' | undefined) => {
+    const s = size || 'small';
+    const sizes = {
+        small: { title: '34pt', sub: '20pt', song: '28pt', number: '28pt' },
+        medium: { title: '40pt', sub: '26pt', song: '34pt', number: '34pt' },
+        large: { title: '48pt', sub: '32pt', song: '40pt', number: '40pt' }
+    };
+    const m = sizes[s];
+    return StyleSheet.create({
+        ...styles,
+        title: { ...styles.title, fontSize: m.title },
+        subtitle: { ...styles.subtitle, fontSize: m.sub },
+        songName: { ...styles.songName, fontSize: m.song },
+        songNumber: { ...styles.songNumber, fontSize: m.number },
+    });
+  };
+
   return (
     <Document 
         title={docTitle} 
@@ -155,36 +172,48 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
     >
       {datasets.map((data, dsIndex) => {
         const hasHighRange = data.songs.some(s => s.vocalRange === 'High');
+        const dynamicStyles = getDynamicStyles(data.fontSize);
+
         return (
           <Page key={dsIndex} size="LETTER" style={styles.page}>
             <View style={data.isDated ? styles.header : styles.minimalHeader}>
               {data.isDated && <Text style={styles.bandName}>Defyance</Text>}
-              <Text style={data.isDated ? styles.title : styles.minimalTitle}>{data.h1}</Text>
+              <Text style={data.isDated ? dynamicStyles.title : styles.minimalTitle}>{data.h1}</Text>
               {(data.h2 || data.h3) && (
-                <Text style={data.isDated ? styles.subtitle : styles.minimalSubtitle}>
+                <Text style={data.isDated ? dynamicStyles.subtitle : styles.minimalSubtitle}>
                   {data.h2}{data.h2 && data.h3 ? ' • ' : ''}{data.h3}
                 </Text>
               )}
             </View>
 
             <View style={styles.songList}>
-              {data.songs.map((song, index) => (
-                <View key={song.id + index} style={styles.songItem} wrap={false}>
-                  <Text style={data.isDated ? styles.songNumber : styles.minimalSongNumber}>{index + 1}</Text>
-                  <View style={styles.songContent}>
-                    <Text 
-                        style={data.isDated ? styles.songName : styles.minimalSongName}
-                    >
-                        {`${truncateToWord(song.name, data.isDated, !!song.linked_to)}${song.vocalRange === 'High' ? '*' : ''}`}
+              {data.songs.map((song, index) => {
+                const isMarker = !!(song as any).label;
+                return (
+                  <View key={song.id + index} style={styles.songItem} wrap={false}>
+                    <Text style={data.isDated ? dynamicStyles.songNumber : styles.minimalSongNumber}>
+                        {isMarker ? '' : index + 1}
                     </Text>
-                    {song.linked_to && (
-                      <View style={styles.linkIconContainer}>
-                        <ArrowDown />
-                      </View>
-                    )}
+                    <View style={styles.songContent}>
+                      <Text 
+                          style={[
+                            data.isDated ? dynamicStyles.songName : styles.minimalSongName,
+                            isMarker ? { color: '#777777', fontSize: data.isDated ? '20pt' : '18pt' } : {}
+                          ]}
+                      >
+                          {isMarker 
+                            ? `*** ${song.name} ***` 
+                            : `${truncateToWord(song.name, data.isDated, !!song.linked_to)}${song.vocalRange === 'High' ? '*' : ''}`}
+                      </Text>
+                      {song.linked_to && (
+                        <View style={styles.linkIconContainer}>
+                          <ArrowDown />
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
 
             <View style={styles.footer} fixed>
@@ -196,3 +225,4 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
     </Document>
   );
 };
+

@@ -18,6 +18,7 @@ interface FormViewProps {
   editDate: string;
   editTime: string;
   editStatus: string;
+  editFontSize: 'small' | 'medium' | 'large';
   isUserAdmin: boolean;
   firstInputRef: React.RefObject<HTMLInputElement | HTMLSelectElement | null>;
   styles: { [key: string]: React.CSSProperties };
@@ -36,15 +37,16 @@ interface FormViewProps {
   setEditDate: (val: string) => void;
   setEditTime: (val: string) => void;
   setEditStatus: (val: string) => void;
+  setEditFontSize: (val: 'small' | 'medium' | 'large') => void;
 }
 
 export const FormView: React.FC<FormViewProps> = ({
   tab, selectedId, editName, editPhone, editEmail, editBio, editArtist, editVocalRange, editKey,
-  editNotes, editLink, editLocation, editDate, editTime, editStatus, isUserAdmin,
+  editNotes, editLink, editLocation, editDate, editTime, editStatus, editFontSize, isUserAdmin,
   firstInputRef, styles, 
   onBack, onSave, setEditName, setEditPhone, setEditEmail, setEditBio, 
   setEditArtist, setEditVocalRange, setEditKey, setEditNotes, setEditLink, 
-  setEditLocation, setEditDate, setEditTime, setEditStatus
+  setEditLocation, setEditDate, setEditTime, setEditStatus, setEditFontSize
 }) => (
   <div style={{ maxWidth: 900 }}>
     <button style={styles.backBtn} onClick={onBack}>← Back</button>
@@ -52,7 +54,7 @@ export const FormView: React.FC<FormViewProps> = ({
       <h2 style={styles.heading}>{selectedId ? 'EDIT' : 'NEW'} {tab.toUpperCase()}</h2>
       <div style={{ maxWidth: 600 }}>
         <label style={styles.label}>Name</label>
-        <input ref={firstInputRef as any} style={styles.input} value={editName} onChange={e => setEditName(e.target.value)} placeholder="Name" />
+        <input ref={firstInputRef as any} style={styles.input} value={editName} onChange={e => setEditName(e.target.value)} placeholder="Name" maxLength={tab === 'events' ? 20 : undefined} />
         {tab === 'musicians' && (<><label style={styles.label}>Phone</label><input style={styles.input} value={editPhone} onChange={e => setEditPhone(e.target.value)} /><label style={styles.label}>Email</label><input style={styles.input} value={editEmail} onChange={e => setEditEmail(e.target.value)} /><label style={styles.label}>Bio</label><textarea style={{ ...styles.input, minHeight: 100 }} value={editBio} onChange={e => setEditBio(e.target.value)} /></>)}
         {tab === 'songs' && (<>
           <label style={styles.label}>Artist</label>
@@ -88,6 +90,16 @@ export const FormView: React.FC<FormViewProps> = ({
           <label style={styles.label}>Link</label>
           <input style={styles.input} value={editLink} onChange={(e) => setEditLink(e.target.value)} />
         </>)}
+        {tab === 'setlists' && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={styles.label}>Font Size</label>
+            <select style={styles.input} value={editFontSize} onChange={e => setEditFontSize(e.target.value as any)}>
+              <option value="small">Small (Default)</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+        )}
         {tab === 'events' && (<><label style={styles.label}>Location</label><input style={styles.input} value={editLocation} onChange={e => setEditLocation(e.target.value)} /><div style={{ display: 'flex', gap: 16 }}><div style={{ flex: 1 }}><label style={styles.label}>Date</label><input style={styles.input} type="date" value={editDate} onChange={e => setEditDate(e.target.value)} /></div><div style={{ flex: 1 }}><label style={styles.label}>Time</label><input style={styles.input} type="time" value={editTime} onChange={e => setEditTime(e.target.value)} /></div></div></>)}
         <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
           <button style={{ ...styles.button, background: theme.accent, color: '#fff', flex: 1 }} onClick={onSave}>Save</button>

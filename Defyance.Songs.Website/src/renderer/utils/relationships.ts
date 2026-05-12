@@ -14,10 +14,9 @@ export const getCurrentRels = (
 ) => {
   if (tab === 'bands') return ((item as Band).musicians || []).map((id: string) => musicians.find(m => m.id === id)).filter(Boolean);
   if (tab === 'musicians') return ((item as Musician).instruments || []).map((id: string) => instruments.find(i => i.id === id)).filter(Boolean);
-  if (tab === 'songs') return setlists.filter(sl => (sl.songs || []).some(s => s.id === (item as Song).id));
+  if (tab === 'songs') return setlists.filter(sl => (sl.songs || []).some(s => s.song_id === (item as Song).id));
   
   if (tab === 'setlists') {
-    const current = ((item as SetList).songs || []).map((s: {id: string, linked_to?: string | null}) => songs.find(so => so.id === s.id)).filter(Boolean);
     const parent = [];
     if ((item as SetList).eventId) { 
       const ev = events.find(e => e.id === (item as SetList).eventId); 
@@ -27,7 +26,16 @@ export const getCurrentRels = (
       const msl = masterSetlists.find(m => m.id === (item as SetList).masterSetlistId); 
       if (msl) parent.push({ ...msl, type: 'parent-master' }); 
     }
-    return [...parent, ...current.map((s, i) => s ? ({...s, linked_to: (item as SetList).songs[i].linked_to}) : null).filter(Boolean)];
+    
+    const current = ((item as SetList).songs || []).map(si => {
+      if (si.label) {
+        return { ...si, type: 'marker', name: si.label };
+      }
+      const song = songs.find(s => s.id === si.song_id);
+      return song ? { ...song, ...si } : null;
+    }).filter(Boolean);
+
+    return [...parent, ...current];
   }
   
   if (tab === 'master-setlists') {

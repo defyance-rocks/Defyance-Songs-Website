@@ -1,6 +1,8 @@
-export interface SetListSong {
+export interface SetListItem {
+  id: string;
   setlist_id: string;
-  song_id: string;
+  song_id?: string | null;
+  label?: string | null;
   linked_to?: string | null;
   position: number;
 }
@@ -51,9 +53,10 @@ export interface UserProfile {
 export interface SetList {
   id: string;
   name: string;
-  songs: { id: string; linked_to?: string | null }[]; // Ordered Song IDs with linking info
+  songs: SetListItem[]; // Ordered items (songs or markers)
   eventId?: string;
   masterSetlistId?: string;
+  font_size?: 'small' | 'medium' | 'large' | string;
 }
 
 export interface EventSetListEntry {
