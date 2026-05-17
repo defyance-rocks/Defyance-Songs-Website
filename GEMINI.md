@@ -22,7 +22,7 @@ The application manages the following entities via Supabase tables:
 - **Musicians:** Individual performers with contact info and bios.
 - **Instruments:** Musical instruments assigned to musicians.
 - **Songs:** Musical pieces with artist, vocal range, and notes.
-- **SetLists:** Ordered collections of songs.
+- **SetLists:** Ordered collections of songs and interludes (markers).
 - **Events:** Gigs or performances at specific locations/dates, containing setlists.
 - **Tours:** Collections of events.
 - **Master SetLists:** Reusable collections of setlists.
@@ -31,11 +31,12 @@ The application manages the following entities via Supabase tables:
 ### Data Access
 - The application interacts directly with Supabase using `@supabase/supabase-js`.
 - `src/renderer/hooks/useAppData.ts` handles all data fetching, syncing, and state management.
-- Real-time updates are simulated using background polling of a `data_versions` table.
+- Real-time updates are simulated using background polling of a `data_versions` table (and granular table subscriptions).
 
 ### Relationship Management
-- Junction tables in Supabase (e.g., `band_musicians`, `setlist_songs`) manage many-to-many relationships.
-- The UI handles assigning/unassigning entities and reordering items (songs in setlists, etc.).
+- Junction tables in Supabase (e.g., `band_musicians`, `setlist_items`, `event_setlists`) manage relationships.
+- `setlist_items` supports both songs and interludes (non-song events) with unique IDs, allowing for repeatable items in a setlist.
+- The UI handles assigning/unassigning entities and reordering items (songs in setlists, etc.) using optimistic updates and PostgreSQL RPCs.
 
 ## Development Commands
 - `npm start`: Runs the app in development mode using Webpack Dev Server.

@@ -52,7 +52,7 @@ export const ListView: React.FC<ListViewProps> = ({
 
     if (songFilterId) {
       if (songFilterId === 'unassigned') {
-        filtered = filtered.filter(s => !setlists.some(sl => sl.songs.some(sls => sls.id === s.id)));
+        filtered = filtered.filter(s => !setlists.some(sl => sl.songs.some(sls => sls.song_id === s.id)));
       } else if (songFilterId === 'draft') {
         filtered = filtered.filter(s => s.status !== 'Approved');
       } else {
@@ -60,8 +60,8 @@ export const ListView: React.FC<ListViewProps> = ({
         if (type === 'setlist') {
           const sl = setlists.find(s => s.id === id);
           if (sl) {
-            orderedSongs = sl.songs.map(s => s.id);
-            filtered = filtered.filter(s => sl.songs.some(sls => sls.id === s.id));
+            orderedSongs = sl.songs.map(s => s.song_id).filter(Boolean) as string[];
+            filtered = filtered.filter(s => sl.songs.some(sls => sls.song_id === s.id));
           }
         } else if (type === 'master') {
           const msl = masterSetlists.find(m => m.id === id);
@@ -70,7 +70,7 @@ export const ListView: React.FC<ListViewProps> = ({
             msl.setlists.forEach(slId => {
               const sl = setlists.find(s => s.id === slId);
               if (sl) sl.songs.forEach(s => {
-                  if (!allSongsInOrder.includes(s.id)) allSongsInOrder.push(s.id);
+                  if (s.song_id && !allSongsInOrder.includes(s.song_id)) allSongsInOrder.push(s.song_id);
               });
             });
             orderedSongs = allSongsInOrder;
@@ -106,8 +106,8 @@ export const ListView: React.FC<ListViewProps> = ({
           return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
       }
       if (songSortMode === 'unassigned') {
-        const assignedA = setlists.some(sl => sl.songs.some(s => s.id === a.id));
-        const assignedB = setlists.some(sl => sl.songs.some(s => s.id === b.id));
+        const assignedA = setlists.some(sl => sl.songs.some(s => s.song_id === a.id));
+        const assignedB = setlists.some(sl => sl.songs.some(s => s.song_id === b.id));
         if (assignedA !== assignedB) return assignedA ? 1 : -1;
         return a.name.localeCompare(b.name);
       }

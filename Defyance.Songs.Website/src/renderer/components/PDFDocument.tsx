@@ -110,11 +110,7 @@ const ArrowDown = () => (
   <Svg viewBox="0 0 24 24" style={{ width: '100%', height: '100%' }}>
     <Path 
       d="M12 21l-7-7h4V4h6v10h4l-7 7z" 
-      stroke="#333333" 
-      strokeWidth="2.5" 
-      fill="none" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
+      fill="#00FF00" 
     />
   </Svg>
 );
@@ -203,7 +199,12 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
                       >
                           {isMarker 
                             ? `*** ${song.name} ***` 
-                            : `${truncateToWord(song.name, data.isDated, !!song.linked_to)}${song.vocalRange === 'High' ? '*' : ''}`}
+                            : (
+                              <Text>
+                                {truncateToWord(song.name, data.isDated, !!song.linked_to)}
+                                {song.vocalRange === 'High' && <Text style={{ color: '#8b0000' }}> *</Text>}
+                              </Text>
+                            )}
                       </Text>
                       {song.linked_to && (
                         <View style={styles.linkIconContainer}>

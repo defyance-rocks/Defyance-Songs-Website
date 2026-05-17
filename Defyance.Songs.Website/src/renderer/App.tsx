@@ -193,10 +193,10 @@ const App: React.FC = () => {
     const item = getItemById(selectedId); if (!item) return [];
     if (tab === 'bands') return musicians.filter(m => !(item as Band).musicians.includes(m.id));
     if (tab === 'musicians') return instruments.filter(i => !(item as Musician).instruments.includes(i.id));
-    if (tab === 'songs') return setlists.filter(sl => !sl.songs.some(s => s.id === (item as Song).id));
+    if (tab === 'songs') return setlists.filter(sl => !sl.songs.some(s => s.song_id === (item as Song).id));
     if (tab === 'setlists') {
       const currentSongs = (item as SetList).songs;
-      const songOptions = songs.filter(s => !currentSongs.some(cs => cs.id === s.id)).map(s => ({ ...s, type: 'song' }));
+      const songOptions = songs.filter(s => !currentSongs.some(cs => cs.song_id === s.id)).map(s => ({ ...s, type: 'song' }));
       const parentOptions = [];
       if (!(item as SetList).eventId && !(item as SetList).masterSetlistId) {
         parentOptions.push(...events.map(e => ({ ...e, type: 'parent-event' })));
