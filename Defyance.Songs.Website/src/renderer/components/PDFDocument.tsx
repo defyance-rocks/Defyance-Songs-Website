@@ -89,9 +89,24 @@ const styles = StyleSheet.create({
     textOverflow: 'ellipsis',
   },
   linkIconContainer: {
-    marginLeft: '30pt', // Approx 2em equivalent for 28pt font
+    marginLeft: '30pt',
     width: '20pt',
     height: '20pt',
+  },
+  minimalIconContainer: {
+    marginLeft: '30pt',
+    width: '26pt',
+    height: '26pt',
+  },
+  asteriskContainer: {
+    marginLeft: '12pt',
+    width: '30pt',
+    height: '30pt',
+  },
+  minimalAsteriskContainer: {
+    marginLeft: '12pt',
+    width: '24pt',
+    height: '24pt',
   },
   footer: {
     position: 'absolute',
@@ -110,7 +125,16 @@ const ArrowDown = () => (
   <Svg viewBox="0 0 24 24" style={{ width: '100%', height: '100%' }}>
     <Path 
       d="M12 21l-7-7h4V4h6v10h4l-7 7z" 
-      fill="#00FF00" 
+      fill="#228B22" 
+    />
+  </Svg>
+);
+
+const AsteriskIcon = () => (
+  <Svg viewBox="0 0 24 24" style={{ width: '100%', height: '100%' }}>
+    <Path
+      d="M12 2L14.4 9H22L16 13.5L18.4 20.5L12 16L5.6 20.5L8 13.5L2 9H9.6L12 2Z"
+      fill="#8b0000"
     />
   </Svg>
 );
@@ -144,9 +168,9 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
   const getDynamicStyles = (size: 'small' | 'medium' | 'large' | undefined) => {
     const s = size || 'small';
     const sizes = {
-        small: { title: '34pt', sub: '20pt', song: '28pt', number: '28pt' },
-        medium: { title: '40pt', sub: '26pt', song: '34pt', number: '34pt' },
-        large: { title: '48pt', sub: '32pt', song: '40pt', number: '40pt' }
+        small: { title: '34pt', sub: '20pt', song: '28pt', number: '28pt', icon: '28pt', ast: '28pt' },
+        medium: { title: '40pt', sub: '26pt', song: '34pt', number: '34pt', icon: '34pt', ast: '34pt' },
+        large: { title: '48pt', sub: '32pt', song: '40pt', number: '40pt', icon: '40pt', ast: '40pt' }
     };
     const m = sizes[s];
     return StyleSheet.create({
@@ -155,6 +179,8 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
         subtitle: { ...styles.subtitle, fontSize: m.sub },
         songName: { ...styles.songName, fontSize: m.song },
         songNumber: { ...styles.songNumber, fontSize: m.number },
+        linkIconContainer: { ...styles.linkIconContainer, width: m.icon, height: m.icon },
+        asteriskContainer: { ...styles.asteriskContainer, width: m.ast, height: m.ast }
     });
   };
 
@@ -199,15 +225,15 @@ export const SetlistPDF: React.FC<PDFDocumentProps> = ({ datasets }) => {
                       >
                           {isMarker 
                             ? `*** ${song.name} ***` 
-                            : (
-                              <Text>
-                                {truncateToWord(song.name, data.isDated, !!song.linked_to)}
-                                {song.vocalRange === 'High' && <Text style={{ color: '#8b0000' }}> *</Text>}
-                              </Text>
-                            )}
+                            : truncateToWord(song.name, data.isDated, !!song.linked_to)}
                       </Text>
+                      {song.vocalRange === 'High' && (
+                        <View style={data.isDated ? dynamicStyles.asteriskContainer : styles.minimalAsteriskContainer}>
+                          <AsteriskIcon />
+                        </View>
+                      )}
                       {song.linked_to && (
-                        <View style={styles.linkIconContainer}>
+                        <View style={data.isDated ? dynamicStyles.linkIconContainer : styles.minimalIconContainer}>
                           <ArrowDown />
                         </View>
                       )}
