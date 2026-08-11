@@ -196,7 +196,7 @@ const App: React.FC = () => {
     if (tab === 'songs') return setlists.filter(sl => !sl.songs.some(s => s.song_id === (item as Song).id));
     if (tab === 'setlists') {
       const currentSongs = (item as SetList).songs;
-      const songOptions = songs.filter(s => !currentSongs.some(cs => cs.song_id === s.id)).map(s => ({ ...s, type: 'song' }));
+      const songOptions = songs.filter(s => !currentSongs.some(cs => cs.song_id === s.id)).map(s => ({ ...s, type: 'song' })).sort((a, b) => a.name.localeCompare(b.name));
       const parentOptions = [];
       if (!(item as SetList).eventId && !(item as SetList).masterSetlistId) {
         parentOptions.push(...events.map(e => ({ ...e, type: 'parent-event' })));

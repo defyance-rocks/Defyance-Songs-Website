@@ -1,3 +1,9 @@
+---
+name: Defyance Songs Website Overview
+description: Project overview, tech stack, and key workflows for the Defyance Songs Website.
+trigger: always_on
+---
+
 # Defyance Songs Website - Project Overview
 
 A web application built with React and TypeScript to manage band song lists, musicians, instruments, setlists, events, and tours.
